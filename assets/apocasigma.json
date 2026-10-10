@@ -1,0 +1,1 @@
+{"sigma_chassis": {"Rigidbody": {"mass": 1115}, "VehicleController": {"powertrain.transmission.gears": [-3.369, 0, 3.369, 2.035, 1.36, 1.0, 0.856], "powertrain.differentials.0.DifferentialType": "Locked", "powertrain.differentials.0.stiffness": 1}, "drive": "rear"}}

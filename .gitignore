@@ -1,0 +1,8 @@
+bin/
+obj/
+dist/
+*.user
+tools/.venv/
+__pycache__/
+# too big for GitHub (159 MB); the Sigma is an example, not part of the library
+assets/apocasigma.glb
