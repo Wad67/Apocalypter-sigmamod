@@ -128,26 +128,49 @@ namespace SigmaMod
             };
         }
 
+        // asset folders found at the last scene load (hot reload watches these)
+        internal static List<AssetSources.Source> Sources;
+
+        internal static List<Info> TemplatesOf(string glb) => ByPath.TryGetValue(glb, out var e) ? new List<Info>(e.Templates) : new List<Info>();
+
         private static void RegisterAssets(ES3ReferenceMgrBase mgr)
         {
-            _donorIndex = null;
             int n = 0;
-            foreach (var src in AssetSources.Find())
+            Sources = AssetSources.Find();
+            foreach (var src in Sources)
                 foreach (var path in Directory.GetFiles(src.Dir, "*.glb", SearchOption.AllDirectories))
-                {
-                    List<Info> list;
-                    try { list = Get(path, mgr); }
-                    catch (Exception e) { Plugin.Log.LogError("custom prefab " + path + ": " + e); continue; }
-                    if (list.Count == 0)
-                        Plugin.Log.LogWarning($"custom prefab: {src.Mod}/{Path.GetFileName(path)}: nothing loaded (no root object with {IdKey}; was Include > Custom Properties on in the export?)");
-                    foreach (var t in list) { t.Mod = src.Mod; Register(t, mgr); n++; }
-                }
-            if (n > 0)
-            {
-                SpawnLists.Join(All.Where(i => i.Spawns));
-                InvalidateApocaspawner();
-            }
+                    n += LoadFile(src, path, mgr).Count;
+            if (n > 0) Registered();
         }
+
+        // (re)builds a file's templates if it changed and registers them with the scene's save manager
+        internal static List<Info> LoadFile(AssetSources.Source src, string path, ES3ReferenceMgrBase mgr)
+        {
+            _donorIndex = null;
+            List<Info> list;
+            try { list = Get(path, mgr); }
+            catch (Exception e) { Plugin.Log.LogError("custom prefab " + path + ": " + e); return new List<Info>(); }
+            if (list.Count == 0)
+                Plugin.Log.LogWarning($"custom prefab: {src.Mod}/{Path.GetFileName(path)}: nothing loaded (no root object with {IdKey}; was Include > Custom Properties on in the export?)");
+            foreach (var t in list) { t.Mod = src.Mod; Register(t, mgr); }
+            return list;
+        }
+
+        internal static void Registered()
+        {
+            SpawnLists.Join(All.Where(i => i.Spawns));
+            InvalidateApocaspawner();
+        }
+
+        // newest of the .glb and its .json; a file that is not there counts as unchanged
+        internal static DateTime Stamp(string glb)
+        {
+            var stamp = File.GetLastWriteTimeUtc(glb);
+            if (File.Exists(JsonPath(glb)) && File.GetLastWriteTimeUtc(JsonPath(glb)) > stamp) stamp = File.GetLastWriteTimeUtc(JsonPath(glb));
+            return stamp;
+        }
+
+        internal static bool Changed(string glb) => !ByPath.TryGetValue(glb, out var have) || have.Stamp != Stamp(glb);
 
         private static void Register(Info t, ES3ReferenceMgrBase mgr)
         {
@@ -172,25 +195,40 @@ namespace SigmaMod
 
         private static List<Info> Get(string path, ES3ReferenceMgrBase mgr)
         {
-            var stamp = File.GetLastWriteTimeUtc(path);
-            if (File.Exists(JsonPath(path)) && File.GetLastWriteTimeUtc(JsonPath(path)) > stamp) stamp = File.GetLastWriteTimeUtc(JsonPath(path));
+            var stamp = Stamp(path);
             if (ByPath.TryGetValue(path, out var have) && have.Stamp == stamp) return have.Templates;
+
+            // read both files before touching the old version: a half-saved .glb or a .json typo keeps it
+            GltfModel model;
+            Dictionary<string, object> overrides = null;
+            try
+            {
+                model = GltfReader.Load(path);
+                if (File.Exists(JsonPath(path)))
+                {
+                    try { overrides = Json.Parse(File.ReadAllText(JsonPath(path))) as Dictionary<string, object>; }
+                    catch (Exception e) { throw new Exception($"{Path.GetFileName(JsonPath(path))}: {e.Message}"); }
+                }
+            }
+            catch (Exception e)
+            {
+                if (have != null)
+                {
+                    have.Stamp = stamp; // not again until the files change
+                    Plugin.Log.LogError($"custom prefab: {Path.GetFileName(path)} not reloaded, the previous version stays: {e.Message}");
+                    return have.Templates;
+                }
+                throw;
+            }
             if (have != null)
                 foreach (var old in have.Templates)
                 {
                     ByPrefabId.Remove(old.PrefabId);
+                    mgr.prefabs.Remove(old.Es3);
                     if (old.Prefab != null) UnityEngine.Object.Destroy(old.Prefab);
                 }
             var entry = new FileEntry { Stamp = stamp };
             ByPath[path] = entry;
-
-            var model = GltfReader.Load(path);
-            Dictionary<string, object> overrides = null;
-            if (File.Exists(JsonPath(path)))
-            {
-                try { overrides = Json.Parse(File.ReadAllText(JsonPath(path))) as Dictionary<string, object>; }
-                catch (Exception e) { Plugin.Log.LogError($"custom prefab: {JsonPath(path)}: {e.Message}"); }
-            }
             foreach (int root in model.Roots)
             {
                 var rootNode = model.Nodes[root];
@@ -207,8 +245,8 @@ namespace SigmaMod
                     Plugin.Log.LogWarning($"custom prefab: {path}: id '{id}' is already used by {clash.Path}; skipped");
                     continue;
                 }
-                var donor = Donor(model, root, mgr, out string how);
-                if (donor == null)
+                var donor = Donor(model, root, mgr, out string how, out bool scratch);
+                if (donor == null && !scratch)
                 {
                     Plugin.Log.LogWarning($"custom prefab: {path}: '{id}': no game prefab found to build on ({how})");
                     continue;
@@ -220,11 +258,12 @@ namespace SigmaMod
                 if (overrides != null && overrides.TryGetValue(id, out var sv) && !(sv is Dictionary<string, object>))
                     Plugin.Log.LogWarning($"custom prefab: {JsonPath(path)}: '{id}' must be an object");
                 else if (overrides != null && overrides.TryGetValue(id, out sv)) spec = (Dictionary<string, object>)sv;
-                var t = Assemble(model, root, path, id, prefabId, rootEx, donor, mgr, spec);
+                var t = Assemble(model, root, path, id, prefabId, rootEx, donor, mgr, spec,
+                                 overrides != null && overrides.TryGetValue("fsms", out var fl) ? fl as Dictionary<string, object> : null);
                 t.Stamp = stamp;
                 entry.Templates.Add(t);
                 ByPrefabId[prefabId] = t;
-                Plugin.Verbose($"custom prefab: '{id}' donor found by {how}");
+                Plugin.Verbose($"custom prefab: '{id}': {how}");
             }
             return entry.Templates;
         }
@@ -234,8 +273,10 @@ namespace SigmaMod
         // and all of them must belong to the same one. Ids from different prefabs refuse the template.
         private static Dictionary<long, ES3Prefab> _donorIndex;
 
-        private static ES3Prefab Donor(GltfModel model, int root, ES3ReferenceMgrBase mgr, out string how)
+        // No game ids anywhere (no es3prefab, no es3local): built from scratch, scratch = true.
+        private static ES3Prefab Donor(GltfModel model, int root, ES3ReferenceMgrBase mgr, out string how, out bool scratch)
         {
+            scratch = false;
             ES3Prefab named = null;
             var ex = model.Nodes[root].Extras;
             if (ex != null && ex.TryGetValue("es3prefab", out var dv) && dv is string ds && long.TryParse(ds, out long donorId))
@@ -270,14 +311,15 @@ namespace SigmaMod
             if (named != null) owners.Remove(named);
             if (named == null && owners.Count == 1) { var only = owners.Keys.First(); how = $"its objects' ids, all from '{only.name}'"; return only; }
             if (named != null && owners.Count == 0) { how = $"root es3prefab ('{named.name}')"; return named; }
-            if (owners.Count == 0) { how = "no es3prefab on the root and no object with an es3local id"; return null; }
+            if (owners.Count == 0 && unknown.Count == 0) { scratch = true; how = "built from scratch (no game ids in it)"; return null; }
+            if (owners.Count == 0) { how = "no es3prefab on the root, and no object with an id a game prefab owns"; return null; }
             how = "objects come from different game prefabs: " + string.Join("; ", owners.Select(o => $"'{o.Key.name}': {string.Join(", ", o.Value.Take(8).ToArray())}{(o.Value.Count > 8 ? " ..." : "")}").ToArray())
                   + (named != null ? $" (root names '{named.name}')" : "");
             return null;
         }
 
         private static Info Assemble(GltfModel model, int root, string path, string id, long prefabId, Dictionary<string, object> rootEx,
-                                     ES3Prefab donor, ES3ReferenceMgrBase mgr, Dictionary<string, object> overrides)
+                                     ES3Prefab donor, ES3ReferenceMgrBase mgr, Dictionary<string, object> overrides, Dictionary<string, object> library)
         {
             // built under an inactive parent so no Awake runs, then kept as an inactive root object
             if (_workbench == null)
@@ -288,14 +330,31 @@ namespace SigmaMod
                 _workbench = h.transform;
             }
             string name = rootEx.TryGetValue(NameKey, out var nv) && nv is string ns && ns.Trim().Length > 0 ? ns.Trim() : id;
-            var go = UnityEngine.Object.Instantiate(donor.gameObject, _workbench);
+            // a donor's clone, or (from scratch) a new object with nothing on it but the Easy Save prefab marker
+            GameObject go;
+            ES3Prefab es3;
+            if (donor != null)
+            {
+                go = UnityEngine.Object.Instantiate(donor.gameObject, _workbench);
+                es3 = go.GetComponent<ES3Prefab>();
+            }
+            else
+            {
+                go = new GameObject(id);
+                go.transform.SetParent(_workbench, false);
+                if (rootEx.TryGetValue("layer", out var lv) && lv is double ld) go.layer = (int)ld;
+                es3 = go.AddComponent<ES3Prefab>();
+                es3.localRefs.Clear();
+                es3.localRefs[go] = StableId(prefabId + "/root");
+                es3.localRefs[go.transform] = StableId(prefabId + "/root#transform");
+                es3.localRefs[es3] = StableId(prefabId + "/root#ES3Prefab");
+            }
             go.name = id;
-            var es3 = go.GetComponent<ES3Prefab>();
             es3.prefabId = prefabId;
             var t = new Info
             {
-                Id = id, Name = name, PrefabId = prefabId, Path = path, DonorName = donor.name, Prefab = go, Es3 = es3,
-                IsVehicle = go.GetComponent<NWH.VehiclePhysics2.VehicleController>() != null, Donor = donor.gameObject,
+                Id = id, Name = name, PrefabId = prefabId, Path = path, DonorName = donor != null ? donor.name : "nothing", Prefab = go, Es3 = es3,
+                Donor = donor != null ? donor.gameObject : null,
                 Spawns = !(rootEx.TryGetValue(SpawnKey, out var spv) && (spv is bool spb && !spb || spv is double spd && spd == 0 || spv is string sps && sps.Trim().ToLowerInvariant() == "false"))
             };
 
@@ -305,7 +364,7 @@ namespace SigmaMod
 
             // A root with no children is a variant: the game prefab as it is, with its own id, name and .json
             // values. Otherwise the template is applied object by object.
-            bool variant = model.Nodes[root].Children.Count == 0 && model.Nodes[root].Mesh < 0;
+            bool variant = donor != null && model.Nodes[root].Children.Count == 0 && model.Nodes[root].Mesh < 0;
             var a = new Applier(model, es3, byId, prefabId, mgr, t.NodeExtras);
             if (variant)
             {
@@ -328,6 +387,37 @@ namespace SigmaMod
                 else t.NodeIds[nid.Trim()] = kv.Key;
             }
 
+            // objects for the .json: sigma_id, else the Blender object name
+            GameObject Node(string nid)
+            {
+                if (string.Equals(nid, "root", StringComparison.OrdinalIgnoreCase)) return go;
+                if (nid.StartsWith("/")) return nid.Length == 1 ? go : go.transform.Find(nid.Substring(1))?.gameObject;
+                if (t.NodeIds.TryGetValue(nid, out long l)) return es3.localRefs.Where(kv => kv.Value == l).Select(kv => kv.Key).OfType<GameObject>().FirstOrDefault();
+                return a.Named.TryGetValue(nid, out var g) ? g : null;
+            }
+            string where = Path.GetFileName(JsonPath(path)) + "/" + id;
+            var ctx = new JsonValues { Root = go, Node = Node, AddNode = (n, g) => a.Named[n] = g, Dir = Path.GetDirectoryName(path), Mgr = mgr, Library = library,
+                                       Created = new List<KeyValuePair<string, UnityEngine.Object>>() };
+
+            // components and FSMs the .json adds; what it adds gets save ids like everything else
+            if (overrides != null)
+            {
+                var before = new HashSet<Component>(go.GetComponentsInChildren<Component>(true));
+                Overrides.Build(go, overrides, Node, ctx, where);
+                var counts = new Dictionary<string, int>();
+                foreach (var tr in go.GetComponentsInChildren<Transform>(true))
+                    if (!before.Contains(tr) && !es3.localRefs.ContainsKey(tr.gameObject))
+                        es3.localRefs[tr.gameObject] = StableId(prefabId + "/json/" + PathBelow(go.transform, tr) + "#GameObject");
+                foreach (var c in go.GetComponentsInChildren<Component>(true))
+                {
+                    if (c == null || before.Contains(c) || es3.localRefs.ContainsKey(c)) continue;
+                    string key = PathBelow(go.transform, c.transform) + "#" + c.GetType().FullName;
+                    counts.TryGetValue(key, out int k);
+                    counts[key] = k + 1;
+                    es3.localRefs[c] = StableId(prefabId + "/json/" + key + "/" + k);
+                }
+            }
+
             string type = rootEx.TryGetValue(TypeKey, out var tv) ? tv as string : null;
             bool chassis = string.Equals(type, "chassis", StringComparison.OrdinalIgnoreCase);
             Dictionary<string, string> donorValues = null, resetValues = null;
@@ -339,13 +429,20 @@ namespace SigmaMod
             }
             else if (type != null) Plugin.Log.LogWarning($"custom prefab: '{id}': unknown {TypeKey} '{type}'");
 
-            if (overrides != null)
-                Overrides.Apply(go, overrides, nid => t.NodeIds.TryGetValue(nid, out long l) ? es3.localRefs.Where(kv => kv.Value == l).Select(kv => kv.Key).OfType<GameObject>().FirstOrDefault() : null,
-                                Path.GetFileName(JsonPath(path)) + "/" + id);
+            if (overrides != null) Overrides.Apply(go, overrides, Node, ctx, where);
+            var vcl =go.GetComponent<NWH.VehiclePhysics2.VehicleController>();
+            t.IsVehicle = vcl != null;
+            if (vcl != null && vcl.stateSettings == null)
+                Plugin.Log.LogWarning($"custom prefab: '{id}': VehicleController has no stateSettings, NWH won't run it " +
+                                      "(\"VehicleController\": { \"stateSettings\": \"asset:StateSettings/DefaultStateSettings\" })");
             if (chassis)
                 try { ValueReport.Write(id, donorValues, resetValues, ValueReport.Snapshot(go)); }
                 catch (Exception e) { Plugin.Log.LogWarning($"custom prefab: '{id}': chassis value report failed: {e.Message}"); }
 
+            // collider meshes and loaded files: files are shared between templates, so their ids come from the path alone
+            foreach (var kv in ctx.Created.GroupBy(x => x.Value).Select(g => g.First()))
+                t.Refs.Add(new KeyValuePair<long, UnityEngine.Object>(
+                    StableId(kv.Key.StartsWith("file:") ? Plugin.GUID + "/" + kv.Key : prefabId + "/" + kv.Key), kv.Value));
             foreach (var kv in a.Builder.Created())
                 t.Refs.Add(new KeyValuePair<long, UnityEngine.Object>(StableId(prefabId + "/" + kv.Key + "/" + a.Occurrence(kv.Key)), kv.Value));
 
@@ -359,8 +456,16 @@ namespace SigmaMod
 
             // stays under the inactive holder: copies made by Instantiate come out active, exactly like copies of
             // a vanilla prefab asset, so the game's own spawners, Easy Save and other mods can use it directly
-            Plugin.Log.LogInfo($"custom prefab: '{id}' ({name}) from donor '{donor.name}', prefab id {prefabId}" + (variant ? "" : ": " + a.Stats));
+            Plugin.Log.LogInfo($"custom prefab: '{id}' ({name}) " + (donor != null ? $"from donor '{donor.name}'" : "from scratch") +
+                               $", prefab id {prefabId}" + (variant ? "" : ": " + a.Stats));
             return t;
+        }
+
+        private static string PathBelow(Transform root, Transform t)
+        {
+            string p = "";
+            for (; t != null && t != root; t = t.parent) p = "/" + t.name + p;
+            return p;
         }
 
         // sigma_type = chassis: the root's Rigidbody and VehicleController start from defaults, not from the
@@ -372,7 +477,12 @@ namespace SigmaMod
         {
             var rb = go.GetComponent<Rigidbody>();
             var vc = go.GetComponent<NWH.VehiclePhysics2.VehicleController>();
-            if (rb == null || vc == null) { Plugin.Log.LogWarning($"custom prefab: '{id}': chassis root has no {(rb == null ? "Rigidbody" : "VehicleController")}"); return; }
+            if (rb == null || vc == null)
+            {
+                Plugin.Log.LogWarning($"custom prefab: '{id}': chassis root has no {(rb == null ? "Rigidbody" : "VehicleController")} (\"add\": [\"Rigidbody\", \"VehicleController\"] in the .json)");
+                return;
+            }
+            bool wheels = go.GetComponentsInChildren<NWH.Common.Vehicles.WheelUAPI>(true).Length > 0;
             rb.mass = 1f; rb.drag = 0f; rb.angularDrag = 0.05f;
             rb.useGravity = true; rb.isKinematic = false;
             rb.interpolation = RigidbodyInterpolation.None;
@@ -381,6 +491,12 @@ namespace SigmaMod
             rb.ResetCenterOfMass();
             rb.ResetInertiaTensor();
             vc.SetDefaults();
+            if (!wheels)
+            {
+                // NWH sets up engine, clutch and gearbox and stops there
+                Plugin.Log.LogWarning($"custom prefab: '{id}': chassis has no WheelControllers under it; engine, clutch and gearbox only, nothing driven (add WheelController to the wheel hinges)");
+                return;
+            }
             string drive = Drive(vc.powertrain, overrides, id);
             Plugin.Log.LogInfo($"custom prefab: '{id}': new chassis, {vc.powertrain.wheels.Count} wheels in {vc.powertrain.wheelGroups.Count} axles, {drive} drive");
             if (overrides == null || !overrides.TryGetValue("Rigidbody", out var r) || !(r is Dictionary<string, object> rd) || !rd.ContainsKey("mass"))
@@ -393,6 +509,13 @@ namespace SigmaMod
         // undriven axle's wheels only steer and brake.
         private static string Drive(NWH.VehiclePhysics2.Powertrain.Powertrain pt, Dictionary<string, object> overrides, string id)
         {
+            // one wheel (a bike, a dyno flywheel): NWH leaves it unconnected and says to put it on the gearbox directly
+            if (pt.wheels.Count == 1)
+            {
+                pt.transmission.Output = pt.wheels[0];
+                pt.differentials = new List<NWH.VehiclePhysics2.Powertrain.DifferentialComponent>();
+                return "single-wheel (gearbox straight to the wheel)";
+            }
             string drive = overrides != null && overrides.TryGetValue("drive", out var d) ? (d as string)?.Trim().ToLowerInvariant() : null;
             if (drive == null)
             {
@@ -400,6 +523,8 @@ namespace SigmaMod
                 return "all-wheel";
             }
             int axle = drive == "front" ? 0 : drive == "rear" ? 1 : drive == "all" ? -1 : -2;
+            // one axle: NWH only wires the front differential, so that axle is the driven one whatever "drive" says
+            if (axle >= 0 && pt.wheelGroups.Count == 1) axle = 0;
             if (axle == -2) { Plugin.Log.LogWarning($"custom prefab: '{id}': unknown drive '{drive}' (rear, front or all); all-wheel drive"); return "all-wheel"; }
             if (axle < 0) return "all-wheel";
             if (pt.differentials.Count != 3) { Plugin.Log.LogWarning($"custom prefab: '{id}': {pt.differentials.Count} differentials after setup, expected 3; all-wheel drive"); return "all-wheel"; }
@@ -480,6 +605,8 @@ namespace SigmaMod
             private int _hidden, _disabled;
 
             private readonly Dictionary<long, Dictionary<string, object>> _nodeExtras;
+            // template objects by Blender object name
+            public readonly Dictionary<string, GameObject> Named = new Dictionary<string, GameObject>(StringComparer.Ordinal);
             // game objects the template moved, by how far (in their parent's space)
             public readonly Dictionary<Transform, Vector3> Moved = new Dictionary<Transform, Vector3>();
 
@@ -547,6 +674,11 @@ namespace SigmaMod
                     target.transform.localScale = new Vector3(n.S[0], n.S[1], n.S[2]);
                 }
                 _seen.Add(target);
+                if (n.Name != null)
+                {
+                    if (!Named.ContainsKey(n.Name)) Named[n.Name] = target;
+                    else Plugin.Log.LogWarning($"custom prefab: two objects are named '{n.Name}'; the .json gets the first");
+                }
                 if (_es3.localRefs.TryGetValue(target, out long localId)) _nodeExtras[localId] = ex;
 
                 if (target.GetComponent<SkinnedMeshRenderer>() != null)
@@ -716,6 +848,15 @@ namespace SigmaMod
             if (v == null) return -1;
             v.Value += 1;
             return v.Value;
+        }
+
+        // out of the save lists, before the copy is destroyed
+        internal static void Unlist(GameObject go)
+        {
+            var holder = GameObject.Find("NewGO_ArrayList");
+            if (holder == null) return;
+            foreach (var list in holder.GetComponents<PlayMakerArrayListProxy>())
+                while (list.arrayList != null && list.arrayList.Contains(go)) list.arrayList.Remove(go);
         }
 
         private static bool AddToList(GameObject go, string reference)

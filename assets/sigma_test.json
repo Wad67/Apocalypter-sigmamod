@@ -1,0 +1,3322 @@
+{
+  "fsms": {
+    "hinge_attach": {
+      "variables": {
+        "string": {
+          "ID": "",
+          "AcceptID": ""
+        },
+        "gameObject": {
+          "Item": null,
+          "Hinge": null
+        }
+      },
+      "states": {
+        "partAttached": {
+          "actions": [
+            {
+              "GameObjectHasChildren": {
+                "gameObject": "owner",
+                "falseEvent": "next",
+                "everyFrame": true
+              }
+            }
+          ],
+          "transitions": {
+            "next": "partMissing"
+          }
+        },
+        "partMissing": {
+          "actions": [
+            {
+              "GameObjectHasChildren": {
+                "gameObject": "owner",
+                "trueEvent": "back",
+                "everyFrame": true
+              }
+            },
+            {
+              "SendEvent": {
+                "eventTarget": "{UI_Canvas}",
+                "sendEvent": "Cursor_Point"
+              }
+            },
+            {
+              "TriggerEvent": {
+                "gameObject": "owner",
+                "trigger": "OnTriggerEnter",
+                "collideTag": "vehPartRemoved",
+                "sendEvent": "next",
+                "storeCollider": "{Item}"
+              }
+            }
+          ],
+          "transitions": {
+            "back": "partAttached",
+            "next": "checkChild"
+          }
+        },
+        "checkChild": {
+          "actions": [
+            {
+              "GameObjectIsChildOf": {
+                "gameObject": "{Item}",
+                "isChildOf": "{Hand}",
+                "trueEvent": "next",
+                "falseEvent": "back"
+              }
+            }
+          ],
+          "transitions": {
+            "next": "checkID",
+            "back": "partMissing"
+          }
+        },
+        "checkID": {
+          "actions": [
+            {
+              "GetFsmString": {
+                "gameObject": "{Item}",
+                "fsmName": "ID",
+                "variableName": "ID",
+                "storeValue": "{ID}"
+              }
+            },
+            {
+              "StringCompare": {
+                "stringVariable": "{ID}",
+                "compareTo": "{AcceptID}",
+                "equalEvent": "next",
+                "notEqualEvent": "back"
+              }
+            }
+          ],
+          "transitions": {
+            "next": "Over",
+            "back": "partMissing"
+          }
+        },
+        "Over": {
+          "actions": [
+            {
+              "SendEvent": {
+                "eventTarget": "{UI_Canvas}",
+                "sendEvent": "Cursor_Wrench",
+                "everyFrame": true
+              }
+            },
+            {
+              "TriggerEvent": {
+                "gameObject": "owner",
+                "trigger": "OnTriggerExit",
+                "collideTag": "vehPartRemoved",
+                "sendEvent": "back",
+                "storeCollider": "{Item}"
+              }
+            },
+            {
+              "GetButtonDown": {
+                "buttonName": "Use",
+                "sendEvent": "next"
+              }
+            }
+          ],
+          "transitions": {
+            "back": "partMissing",
+            "next": "Attach"
+          }
+        },
+        "Attach": {
+          "actions": [
+            {
+              "PlaySound": {
+                "gameObject": "owner",
+                "clip": "asset:AudioClip/wrench1",
+                "volume": 1
+              }
+            },
+            {
+              "GetOwner": {
+                "storeGameObject": "{Hinge}"
+              }
+            },
+            {
+              "SendEvent": {
+                "eventTarget": "{PlayerCamera}/GrabItem",
+                "sendEvent": "not_Hold"
+              }
+            },
+            {
+              "SendEvent": {
+                "eventTarget": "{UI_Canvas}",
+                "sendEvent": "Cursor_Point"
+              }
+            },
+            {
+              "DestroyComponent": {
+                "gameObject": "{Item}",
+                "component": "UnityEngine.Rigidbody"
+              }
+            },
+            {
+              "SetTag": {
+                "gameObject": "{Item}",
+                "tag": "vehPart"
+              }
+            },
+            {
+              "SetLayer": {
+                "gameObject": "{Item}",
+                "layer": 8
+              }
+            },
+            {
+              "SetParent": {
+                "gameObject": "{Item}",
+                "parent": "{Hinge}",
+                "worldPositionStays": true,
+                "resetLocalPosition": true,
+                "resetLocalRotation": true
+              }
+            },
+            {
+              "GameObjectHasChildren": {
+                "gameObject": "owner",
+                "trueEvent": "back",
+                "everyFrame": true
+              }
+            }
+          ],
+          "transitions": {
+            "back": "partAttached"
+          }
+        }
+      }
+    },
+    "dashboard_attach": {
+      "variables": {
+        "string": {
+          "ID": "",
+          "AcceptID": ""
+        },
+        "gameObject": {
+          "Item": null,
+          "Hinge": null
+        }
+      },
+      "states": {
+        "partMissing": {
+          "actions": [
+            {
+              "SendEvent": {
+                "eventTarget": "{UI_Canvas}",
+                "sendEvent": "Cursor_Point"
+              }
+            },
+            {
+              "TriggerEvent": {
+                "gameObject": "owner",
+                "trigger": "OnTriggerEnter",
+                "collideTag": "vehPartRemoved",
+                "sendEvent": "next",
+                "storeCollider": "{Item}"
+              }
+            }
+          ],
+          "transitions": {
+            "next": "checkChild"
+          }
+        },
+        "checkChild": {
+          "actions": [
+            {
+              "GameObjectIsChildOf": {
+                "gameObject": "{Item}",
+                "isChildOf": "{Hand}",
+                "trueEvent": "next",
+                "falseEvent": "back"
+              }
+            }
+          ],
+          "transitions": {
+            "next": "checkID",
+            "back": "partMissing"
+          }
+        },
+        "checkID": {
+          "actions": [
+            {
+              "GetFsmString": {
+                "gameObject": "{Item}",
+                "fsmName": "ID",
+                "variableName": "ID",
+                "storeValue": "{ID}"
+              }
+            },
+            {
+              "StringCompare": {
+                "stringVariable": "{ID}",
+                "compareTo": "{AcceptID}",
+                "equalEvent": "next",
+                "notEqualEvent": "back"
+              }
+            }
+          ],
+          "transitions": {
+            "next": "Over",
+            "back": "partMissing"
+          }
+        },
+        "Over": {
+          "actions": [
+            {
+              "SendEvent": {
+                "eventTarget": "{UI_Canvas}",
+                "sendEvent": "Cursor_Wrench",
+                "everyFrame": true
+              }
+            },
+            {
+              "TriggerEvent": {
+                "gameObject": "owner",
+                "trigger": "OnTriggerExit",
+                "collideTag": "vehPartRemoved",
+                "sendEvent": "back",
+                "storeCollider": "{Item}"
+              }
+            },
+            {
+              "GetButtonDown": {
+                "buttonName": "Use",
+                "sendEvent": "next"
+              }
+            }
+          ],
+          "transitions": {
+            "back": "partMissing",
+            "next": "Attach"
+          }
+        },
+        "Attach": {
+          "actions": [
+            {
+              "PlaySound": {
+                "gameObject": "owner",
+                "clip": "asset:AudioClip/wrench1",
+                "volume": 1
+              }
+            },
+            {
+              "GetOwner": {
+                "storeGameObject": "{Hinge}"
+              }
+            },
+            {
+              "SendEvent": {
+                "eventTarget": "{PlayerCamera}/GrabItem",
+                "sendEvent": "not_Hold"
+              }
+            },
+            {
+              "SendEvent": {
+                "eventTarget": "{UI_Canvas}",
+                "sendEvent": "Cursor_Point"
+              }
+            },
+            {
+              "DestroyComponent": {
+                "gameObject": "{Item}",
+                "component": "UnityEngine.Rigidbody"
+              }
+            },
+            {
+              "SetTag": {
+                "gameObject": "{Item}",
+                "tag": "vehPart"
+              }
+            },
+            {
+              "SetLayer": {
+                "gameObject": "{Item}",
+                "layer": 8
+              }
+            },
+            {
+              "SetParent": {
+                "gameObject": "{Item}",
+                "parent": "{Hinge}",
+                "worldPositionStays": true,
+                "resetLocalPosition": false,
+                "resetLocalRotation": false
+              }
+            },
+            {
+              "NextFrameEvent": {
+                "sendEvent": "back"
+              }
+            }
+          ],
+          "transitions": {
+            "back": "partMissing"
+          }
+        }
+      },
+      "start": "partMissing"
+    }
+  },
+  "sigma_chassis_test": {
+    "layer": 8,
+    "tag": "Vehicle",
+    "add": [
+      "Rigidbody",
+      "VehicleController"
+    ],
+    "Rigidbody": {
+      "mass": 1115
+    },
+    "drive": "rear",
+    "playmaker": {
+      "sigma_hello": {
+        "variables": {
+          "float": {
+            "ticks": 0
+          }
+        },
+        "states": {
+          "hello": {
+            "actions": [
+              {
+                "DebugLog": {
+                  "text": "sigma_test: FSM built from JSON is running",
+                  "sendToUnityLog": true
+                }
+              }
+            ],
+            "transitions": {
+              "FINISHED": "tick"
+            }
+          },
+          "tick": {
+            "actions": [
+              {
+                "FloatAdd": {
+                  "floatVariable": "{ticks}",
+                  "add": 1
+                }
+              },
+              {
+                "Wait": {
+                  "time": 5
+                }
+              }
+            ],
+            "transitions": {
+              "FINISHED": "tick"
+            }
+          }
+        }
+      },
+      "RpmGear": {
+        "variables": {
+          "float": {
+            "rpm": 0
+          },
+          "int": {
+            "gear": 0
+          },
+          "object": {
+            "VehicleController": "root:VehicleController"
+          }
+        },
+        "states": {
+          "RpmGear": {
+            "actions": [
+              {
+                "GetProperty": {
+                  "everyFrame": true,
+                  "targetProperty": {
+                    "TargetObject": "{VehicleController}",
+                    "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                    "PropertyName": "powertrain.engine.OutputRPM",
+                    "FloatParameter": "{rpm}"
+                  }
+                }
+              },
+              {
+                "GetProperty": {
+                  "everyFrame": true,
+                  "targetProperty": {
+                    "TargetObject": "{VehicleController}",
+                    "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                    "PropertyName": "powertrain.transmission.Gear",
+                    "IntParameter": "{gear}"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "Speed": {
+        "variables": {
+          "float": {
+            "speed": 0
+          }
+        },
+        "states": {
+          "getSpeed": {
+            "actions": [
+              {
+                "GetSpeed": {
+                  "gameObject": "owner",
+                  "storeResult": "{speed}",
+                  "everyFrame": true
+                }
+              }
+            ]
+          }
+        }
+      },
+      "getFuel": {
+        "variables": {
+          "gameObject": {
+            "Fuel": "Access Collider"
+          }
+        },
+        "states": {
+          "idle": {}
+        }
+      },
+      "getEngineHinge": {
+        "variables": {
+          "gameObject": {
+            "hinge_engine": "Engine Mount"
+          }
+        },
+        "states": {
+          "idle": {}
+        }
+      },
+      "getRadiatorHinge": {
+        "variables": {
+          "gameObject": {
+            "hinge_radiator": "Radiator Mount"
+          }
+        },
+        "states": {
+          "idle": {}
+        }
+      },
+      "getAudio": {
+        "variables": {
+          "gameObject": {
+            "AudioThrottle": null
+          }
+        },
+        "states": {
+          "wait": {
+            "actions": [
+              {
+                "NextFrameEvent": {
+                  "sendEvent": "next"
+                }
+              }
+            ],
+            "transitions": {
+              "next": "getAudio"
+            }
+          },
+          "getAudio": {
+            "actions": [
+              {
+                "GetChild": {
+                  "gameObject": "owner",
+                  "childName": "EngineAudioSources",
+                  "withTag": "Untagged",
+                  "storeResult": "{AudioThrottle}"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "GetRSound": {
+        "variables": {
+          "gameObject": {
+            "RSound": "RSound"
+          }
+        },
+        "states": {
+          "idle": {}
+        }
+      },
+      "IgnitionVisual": {
+        "variables": {
+          "float": {
+            "x": 0
+          }
+        },
+        "states": {
+          "check": {
+            "actions": [
+              {
+                "GetRotation": {
+                  "gameObject": "Ignition Key",
+                  "space": "Self",
+                  "xAngle": "{x}"
+                }
+              },
+              {
+                "FloatCompare": {
+                  "float1": "{x}",
+                  "float2": 180,
+                  "tolerance": 0,
+                  "greaterThan": "off"
+                }
+              },
+              {
+                "FloatCompare": {
+                  "float1": "{x}",
+                  "float2": 37.5,
+                  "tolerance": 0,
+                  "greaterThan": "start",
+                  "lessThan": "on"
+                }
+              }
+            ],
+            "transitions": {
+              "off": "off",
+              "on": "on",
+              "start": "start"
+            }
+          },
+          "off": {
+            "actions": [
+              {
+                "ActivateGameObject": {
+                  "gameObject": "Ignition Off",
+                  "activate": true
+                }
+              },
+              {
+                "ActivateGameObject": {
+                  "gameObject": "Ignition On",
+                  "activate": false
+                }
+              },
+              {
+                "ActivateGameObject": {
+                  "gameObject": "Ignition and Starter On",
+                  "activate": false
+                }
+              },
+              {
+                "NextFrameEvent": {
+                  "sendEvent": "next"
+                }
+              }
+            ],
+            "transitions": {
+              "next": "check"
+            }
+          },
+          "on": {
+            "actions": [
+              {
+                "ActivateGameObject": {
+                  "gameObject": "Ignition Off",
+                  "activate": false
+                }
+              },
+              {
+                "ActivateGameObject": {
+                  "gameObject": "Ignition On",
+                  "activate": true
+                }
+              },
+              {
+                "ActivateGameObject": {
+                  "gameObject": "Ignition and Starter On",
+                  "activate": false
+                }
+              },
+              {
+                "NextFrameEvent": {
+                  "sendEvent": "next"
+                }
+              }
+            ],
+            "transitions": {
+              "next": "check"
+            }
+          },
+          "start": {
+            "actions": [
+              {
+                "ActivateGameObject": {
+                  "gameObject": "Ignition Off",
+                  "activate": false
+                }
+              },
+              {
+                "ActivateGameObject": {
+                  "gameObject": "Ignition On",
+                  "activate": false
+                }
+              },
+              {
+                "ActivateGameObject": {
+                  "gameObject": "Ignition and Starter On",
+                  "activate": true
+                }
+              },
+              {
+                "NextFrameEvent": {
+                  "sendEvent": "next"
+                }
+              }
+            ],
+            "transitions": {
+              "next": "check"
+            }
+          }
+        }
+      },
+      "ClutchCapacity": {
+        "variables": {
+          "object": {
+            "VehicleController": "root:VehicleController"
+          }
+        },
+        "states": {
+          "hold": {
+            "actions": [
+              {
+                "SetProperty": {
+                  "everyFrame": true,
+                  "targetProperty": {
+                    "TargetObject": "{VehicleController}",
+                    "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                    "PropertyName": "powertrain.clutch.slipTorque",
+                    "setProperty": true,
+                    "FloatParameter": 100000
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "getDashboard": {
+        "variables": {
+          "gameObject": {
+            "Dashboard": "Dashboard"
+          }
+        },
+        "states": {
+          "idle": {}
+        }
+      }
+    },
+    "nodes": {
+      "Floor Collider": {
+        "collider": "convex"
+      },
+      "Firewall Collider": {
+        "collider": "convex"
+      },
+      "Engine Mount": {
+        "layer": 13,
+        "tag": "Hinge",
+        "collider": {
+          "shape": "box",
+          "trigger": true,
+          "render": true
+        },
+        "playmaker": {
+          "vehPart_Attach": {
+            "use": "hinge_attach",
+            "variables": {
+              "string": {
+                "AcceptID": "engine"
+              }
+            }
+          },
+          "getParent": {
+            "variables": {
+              "gameObject": {
+                "vehicle": "root"
+              }
+            },
+            "states": {
+              "idle": {}
+            }
+          },
+          "getEngine": {
+            "variables": {
+              "gameObject": {
+                "engine": null
+              }
+            },
+            "states": {
+              "noEngine": {
+                "actions": [
+                  {
+                    "SetVisibility": {
+                      "gameObject": "owner",
+                      "visible": true
+                    }
+                  },
+                  {
+                    "SetGameObject": {
+                      "variable": "{engine}",
+                      "gameObject": null
+                    }
+                  },
+                  {
+                    "GameObjectHasChildren": {
+                      "gameObject": "owner",
+                      "trueEvent": "next",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "hasEngine"
+                }
+              },
+              "hasEngine": {
+                "actions": [
+                  {
+                    "SetVisibility": {
+                      "gameObject": "owner",
+                      "visible": false
+                    }
+                  },
+                  {
+                    "GetChild": {
+                      "gameObject": "owner",
+                      "childName": "",
+                      "withTag": "vehPart",
+                      "storeResult": "{engine}"
+                    }
+                  },
+                  {
+                    "GameObjectHasChildren": {
+                      "gameObject": "owner",
+                      "falseEvent": "back",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "back": "noEngine"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Radiator Mount": {
+        "layer": 13,
+        "tag": "Hinge",
+        "collider": {
+          "shape": "box",
+          "trigger": true,
+          "render": true
+        },
+        "playmaker": {
+          "vehPart_Attach": {
+            "use": "hinge_attach",
+            "variables": {
+              "string": {
+                "AcceptID": "radiator"
+              }
+            }
+          },
+          "getParent": {
+            "variables": {
+              "gameObject": {
+                "vehicle": "root"
+              }
+            },
+            "states": {
+              "idle": {}
+            }
+          },
+          "getRadiator": {
+            "variables": {
+              "gameObject": {
+                "radiator": null
+              }
+            },
+            "states": {
+              "noRadiator": {
+                "actions": [
+                  {
+                    "SetVisibility": {
+                      "gameObject": "owner",
+                      "visible": true
+                    }
+                  },
+                  {
+                    "SetGameObject": {
+                      "variable": "{radiator}",
+                      "gameObject": null
+                    }
+                  },
+                  {
+                    "GameObjectHasChildren": {
+                      "gameObject": "owner",
+                      "trueEvent": "next",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "hasRadiator"
+                }
+              },
+              "hasRadiator": {
+                "actions": [
+                  {
+                    "SetVisibility": {
+                      "gameObject": "owner",
+                      "visible": false
+                    }
+                  },
+                  {
+                    "GetChild": {
+                      "gameObject": "owner",
+                      "childName": "",
+                      "withTag": "vehPart",
+                      "storeResult": "{radiator}"
+                    }
+                  },
+                  {
+                    "GameObjectHasChildren": {
+                      "gameObject": "owner",
+                      "falseEvent": "back",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "back": "noRadiator"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Access Collider": {
+        "layer": 2,
+        "tag": "Gasoline",
+        "collider": {
+          "shape": "box",
+          "trigger": true
+        },
+        "playmaker": {
+          "LiquidAmount": {
+            "variables": {
+              "float": {
+                "Liquid": 30,
+                "LiquidCapacity": 60
+              },
+              "object": {
+                "FuelModule": null
+              }
+            },
+            "states": {
+              "liquidAmount": {
+                "actions": [
+                  {
+                    "FloatClamp": {
+                      "floatVariable": "{Liquid}",
+                      "minValue": 0,
+                      "maxValue": "{LiquidCapacity}",
+                      "everyFrame": true
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "FuelConsumption": {
+            "variables": {
+              "float": {
+                "rpm": 0,
+                "FuelConsumption": 0
+              }
+            },
+            "states": {
+              "off": {
+                "actions": [
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "root",
+                      "fsmName": "RpmGear",
+                      "variableName": "rpm",
+                      "storeValue": "{rpm}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "FloatCompare": {
+                      "float1": "{rpm}",
+                      "float2": 30,
+                      "tolerance": 0,
+                      "greaterThan": "next",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "on"
+                }
+              },
+              "on": {
+                "actions": [
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "root",
+                      "fsmName": "RpmGear",
+                      "variableName": "rpm",
+                      "storeValue": "{rpm}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "FloatCompare": {
+                      "float1": "{rpm}",
+                      "float2": 30,
+                      "tolerance": 0,
+                      "lessThan": "back",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "FloatMultiply": {
+                      "floatVariable": "{rpm}",
+                      "multiplyBy": "{FuelConsumption}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "FsmFloatAdd": {
+                      "gameObject": "owner",
+                      "fsmName": "LiquidAmount",
+                      "variableName": "Liquid",
+                      "add": "{rpm}",
+                      "everyFrame": true,
+                      "perSecond": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "back": "off"
+                }
+              }
+            }
+          },
+          "UseCan": {
+            "variables": {
+              "float": {
+                "CanLiquid": 0,
+                "Liquid": 0,
+                "LiquidCapacity": 0
+              },
+              "string": {
+                "Tag": ""
+              },
+              "gameObject": {
+                "CollidedObj": null
+              }
+            },
+            "states": {
+              "CheckTrigger": {
+                "actions": [
+                  {
+                    "GetTag": {
+                      "gameObject": "Access Collider",
+                      "storeResult": "{Tag}"
+                    }
+                  },
+                  {
+                    "AudioStop": {
+                      "gameObject": "Fuel Inlet",
+                      "fadeTime": 0
+                    }
+                  },
+                  {
+                    "TriggerEvent": {
+                      "gameObject": "Fuel Hose End",
+                      "trigger": "OnTriggerEnter",
+                      "collideTag": "{Tag}",
+                      "sendEvent": "next",
+                      "storeCollider": "{CollidedObj}"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "Fill"
+                }
+              },
+              "Fill": {
+                "actions": [
+                  {
+                    "SetAudioClip": {
+                      "gameObject": "Fuel Inlet",
+                      "audioClip": "asset:AudioClip/liquid_filling2"
+                    }
+                  },
+                  {
+                    "SetAudioLoop": {
+                      "gameObject": "Fuel Inlet",
+                      "loop": true
+                    }
+                  },
+                  {
+                    "AudioPlay": {
+                      "gameObject": "Fuel Inlet",
+                      "volume": 1
+                    }
+                  },
+                  {
+                    "TriggerEvent": {
+                      "gameObject": "Fuel Hose End",
+                      "trigger": "OnTriggerExit",
+                      "collideTag": "{Tag}",
+                      "sendEvent": "back"
+                    }
+                  },
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "owner",
+                      "fsmName": "LiquidAmount",
+                      "variableName": "Liquid",
+                      "storeValue": "{CanLiquid}"
+                    }
+                  },
+                  {
+                    "FloatAdd": {
+                      "floatVariable": "{CanLiquid}",
+                      "add": -1,
+                      "everyFrame": true,
+                      "perSecond": true
+                    }
+                  },
+                  {
+                    "SetFsmFloat": {
+                      "gameObject": "owner",
+                      "fsmName": "LiquidAmount",
+                      "variableName": "Liquid",
+                      "setValue": "{CanLiquid}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "FloatCompare": {
+                      "float1": "{CanLiquid}",
+                      "float2": 0.0001,
+                      "tolerance": 0,
+                      "lessThan": "empty",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "{CollidedObj}",
+                      "fsmName": "LiquidAmount",
+                      "variableName": "Liquid",
+                      "storeValue": "{Liquid}"
+                    }
+                  },
+                  {
+                    "FloatAdd": {
+                      "floatVariable": "{Liquid}",
+                      "add": 1,
+                      "everyFrame": true,
+                      "perSecond": true
+                    }
+                  },
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "{CollidedObj}",
+                      "fsmName": "LiquidAmount",
+                      "variableName": "LiquidCapacity",
+                      "storeValue": "{LiquidCapacity}"
+                    }
+                  },
+                  {
+                    "SetFsmFloat": {
+                      "gameObject": "{CollidedObj}",
+                      "fsmName": "LiquidAmount",
+                      "variableName": "Liquid",
+                      "setValue": "{Liquid}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "FloatCompare": {
+                      "float1": "{Liquid}",
+                      "float2": "{LiquidCapacity}",
+                      "tolerance": 0,
+                      "greaterThan": "back",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "back": "CheckTrigger",
+                  "empty": "Empty"
+                }
+              },
+              "Empty": {
+                "actions": [
+                  {
+                    "AudioStop": {
+                      "gameObject": "Fuel Inlet",
+                      "fadeTime": 0
+                    }
+                  },
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "owner",
+                      "fsmName": "LiquidAmount",
+                      "variableName": "Liquid",
+                      "storeValue": "{CanLiquid}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "FloatCompare": {
+                      "float1": "{CanLiquid}",
+                      "float2": 0.0001,
+                      "tolerance": 0,
+                      "greaterThan": "next",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "CheckTrigger"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Ignition Collider": {
+        "layer": 0,
+        "collider": {
+          "shape": "box",
+          "trigger": true
+        },
+        "add": [
+          "AudioSource"
+        ],
+        "AudioSource": {
+          "playOnAwake": false,
+          "spatialBlend": 1
+        },
+        "playmaker": {
+          "Start": {
+            "variables": {
+              "float": {
+                "startDuration": 0,
+                "rpm": 0,
+                "Liquid": 0
+              },
+              "bool": {
+                "engineIsRunning": false
+              },
+              "gameObject": {
+                "Fuel": "Access Collider",
+                "EngineHinge": "Engine Mount",
+                "Dashboard": null
+              },
+              "object": {
+                "VehicleController": "root:VehicleController"
+              }
+            },
+            "states": {
+              "off": {
+                "actions": [
+                  {
+                    "GetFsmGameObject": {
+                      "gameObject": "root",
+                      "fsmName": "getDashboard",
+                      "variableName": "Dashboard",
+                      "storeValue": "{Dashboard}"
+                    }
+                  },
+                  {
+                    "SendEvent": {
+                      "eventTarget": {
+                        "target": "GameObject",
+                        "gameObject": "{Dashboard}",
+                        "sendToChildren": true
+                      },
+                      "sendEvent": "Deactivate"
+                    }
+                  },
+                  {
+                    "SetRotation": {
+                      "gameObject": "Ignition Key",
+                      "xAngle": -30,
+                      "space": "Self"
+                    }
+                  },
+                  {
+                    "AudioStop": {
+                      "gameObject": "owner",
+                      "fadeTime": 0.1
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "powertrain.engine.engineLossPercent",
+                        "setProperty": true,
+                        "FloatParameter": 0.25
+                      }
+                    }
+                  },
+                  {
+                    "MousePickEvent": {
+                      "GameObject": "owner",
+                      "rayDistance": 2,
+                      "mouseOver": "next",
+                      "layerMask": [
+                        0
+                      ],
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "checkEngine"
+                }
+              },
+              "checkEngine": {
+                "actions": [
+                  {
+                    "GameObjectHasChildren": {
+                      "gameObject": "{EngineHinge}",
+                      "trueEvent": "next",
+                      "falseEvent": "back"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "over",
+                  "back": "back"
+                }
+              },
+              "over": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": "Ignition"
+                    }
+                  },
+                  {
+                    "MousePickEvent": {
+                      "GameObject": "owner",
+                      "rayDistance": 2,
+                      "mouseDown": "next",
+                      "mouseOff": "back",
+                      "layerMask": [
+                        0
+                      ],
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "back": "off",
+                  "next": "Ignition"
+                }
+              },
+              "Ignition": {
+                "actions": [
+                  {
+                    "GetFsmGameObject": {
+                      "gameObject": "root",
+                      "fsmName": "getDashboard",
+                      "variableName": "Dashboard",
+                      "storeValue": "{Dashboard}"
+                    }
+                  },
+                  {
+                    "SendEvent": {
+                      "eventTarget": {
+                        "target": "GameObject",
+                        "gameObject": "{Dashboard}",
+                        "sendToChildren": true
+                      },
+                      "sendEvent": "Activate"
+                    }
+                  },
+                  {
+                    "SetRotation": {
+                      "gameObject": "Ignition Key",
+                      "xAngle": 30,
+                      "space": "Self"
+                    }
+                  },
+                  {
+                    "PlaySound": {
+                      "gameObject": "owner",
+                      "clip": "asset:AudioClip/electricity_on1",
+                      "volume": 1
+                    }
+                  },
+                  {
+                    "NextFrameEvent": {
+                      "sendEvent": "next"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "off2"
+                }
+              },
+              "off2": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "MousePickEvent": {
+                      "GameObject": "owner",
+                      "rayDistance": 2,
+                      "mouseOver": "next",
+                      "layerMask": [
+                        0
+                      ],
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "over2"
+                }
+              },
+              "over2": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": "Start"
+                    }
+                  },
+                  {
+                    "MousePickEvent": {
+                      "GameObject": "owner",
+                      "rayDistance": 2,
+                      "mouseDown": "next",
+                      "mouseOff": "back",
+                      "layerMask": [
+                        0
+                      ],
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "Start",
+                  "back": "off2"
+                }
+              },
+              "Start": {
+                "actions": [
+                  {
+                    "SetRotation": {
+                      "gameObject": "Ignition Key",
+                      "xAngle": 45,
+                      "space": "Self"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "{Fuel}",
+                      "fsmName": "LiquidAmount",
+                      "variableName": "Liquid",
+                      "storeValue": "{Liquid}"
+                    }
+                  },
+                  {
+                    "FloatCompare": {
+                      "float1": "{Liquid}",
+                      "float2": 0.01,
+                      "tolerance": 0,
+                      "lessThan": "off"
+                    }
+                  },
+                  {
+                    "GetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "powertrain.engine.startDuration",
+                        "FloatParameter": "{startDuration}"
+                      }
+                    }
+                  },
+                  {
+                    "FloatAdd": {
+                      "floatVariable": "{startDuration}",
+                      "add": 0.5
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "input.EngineStartStop",
+                        "setProperty": true,
+                        "BoolParameter": true
+                      }
+                    }
+                  },
+                  {
+                    "SetAudioClip": {
+                      "gameObject": "owner",
+                      "audioClip": "asset:AudioClip/poloska_621_v2_start"
+                    }
+                  },
+                  {
+                    "SetAudioLoop": {
+                      "gameObject": "owner",
+                      "loop": true
+                    }
+                  },
+                  {
+                    "AudioPlay": {
+                      "gameObject": "owner",
+                      "volume": 0.7
+                    }
+                  },
+                  {
+                    "Wait": {
+                      "time": "{startDuration}",
+                      "finishEvent": "next"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "wait",
+                  "off": "Stop"
+                }
+              },
+              "wait": {
+                "actions": [
+                  {
+                    "SetRotation": {
+                      "gameObject": "Ignition Key",
+                      "xAngle": 30,
+                      "space": "Self"
+                    }
+                  },
+                  {
+                    "AudioStop": {
+                      "gameObject": "owner",
+                      "fadeTime": 0.1
+                    }
+                  },
+                  {
+                    "Wait": {
+                      "time": 1,
+                      "finishEvent": "next"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "off3"
+                }
+              },
+              "off3": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "GetProperty": {
+                      "everyFrame": true,
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "powertrain.engine.IsRunning",
+                        "BoolParameter": "{engineIsRunning}"
+                      }
+                    }
+                  },
+                  {
+                    "BoolTest": {
+                      "boolVariable": "{engineIsRunning}",
+                      "isFalse": "off",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "{Fuel}",
+                      "fsmName": "LiquidAmount",
+                      "variableName": "Liquid",
+                      "storeValue": "{Liquid}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "FloatCompare": {
+                      "float1": "{Liquid}",
+                      "float2": 0.01,
+                      "tolerance": 0,
+                      "lessThan": "off",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "GameObjectHasChildren": {
+                      "gameObject": "{EngineHinge}",
+                      "falseEvent": "off",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "MousePickEvent": {
+                      "GameObject": "owner",
+                      "rayDistance": 2,
+                      "mouseOver": "next",
+                      "layerMask": [
+                        0
+                      ],
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "off": "Stop",
+                  "next": "over3"
+                }
+              },
+              "over3": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": "Stop"
+                    }
+                  },
+                  {
+                    "GetProperty": {
+                      "everyFrame": true,
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "powertrain.engine.IsRunning",
+                        "BoolParameter": "{engineIsRunning}"
+                      }
+                    }
+                  },
+                  {
+                    "BoolTest": {
+                      "boolVariable": "{engineIsRunning}",
+                      "isFalse": "off",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "{Fuel}",
+                      "fsmName": "LiquidAmount",
+                      "variableName": "Liquid",
+                      "storeValue": "{Liquid}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "FloatCompare": {
+                      "float1": "{Liquid}",
+                      "float2": 0.01,
+                      "tolerance": 0,
+                      "lessThan": "off",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "MousePickEvent": {
+                      "GameObject": "owner",
+                      "rayDistance": 2,
+                      "mouseDown": "off",
+                      "mouseOff": "back",
+                      "layerMask": [
+                        0
+                      ],
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "off": "Stop",
+                  "back": "off3"
+                }
+              },
+              "Stop": {
+                "actions": [
+                  {
+                    "SetRotation": {
+                      "gameObject": "Ignition Key",
+                      "xAngle": -30,
+                      "space": "Self"
+                    }
+                  },
+                  {
+                    "PlaySound": {
+                      "gameObject": "owner",
+                      "clip": "asset:AudioClip/electricity_on1",
+                      "volume": 1
+                    }
+                  },
+                  {
+                    "PlaySound": {
+                      "gameObject": "owner",
+                      "clip": "asset:AudioClip/EngineStop_2",
+                      "volume": 0.3
+                    }
+                  },
+                  {
+                    "GetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "powertrain.engine.IsRunning",
+                        "BoolParameter": "{engineIsRunning}"
+                      }
+                    }
+                  },
+                  {
+                    "BoolTest": {
+                      "boolVariable": "{engineIsRunning}",
+                      "isFalse": "off"
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "input.EngineStartStop",
+                        "setProperty": true,
+                        "BoolParameter": true
+                      }
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "powertrain.engine.engineLossPercent",
+                        "setProperty": true,
+                        "FloatParameter": 50
+                      }
+                    }
+                  },
+                  {
+                    "GetProperty": {
+                      "everyFrame": true,
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "powertrain.engine.OutputRPM",
+                        "FloatParameter": "{rpm}"
+                      }
+                    }
+                  },
+                  {
+                    "FloatCompare": {
+                      "float1": "{rpm}",
+                      "float2": 1,
+                      "tolerance": 0,
+                      "lessThan": "off",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "off": "wait2"
+                }
+              },
+              "back": {
+                "actions": [
+                  {
+                    "NextFrameEvent": {
+                      "sendEvent": "back"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "back": "off"
+                }
+              },
+              "wait2": {
+                "actions": [
+                  {
+                    "Wait": {
+                      "time": 1,
+                      "finishEvent": "next"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "off"
+                }
+              }
+            }
+          }
+        }
+      },
+      "RSound": {
+        "parent": "root",
+        "add": [
+          "NWH2_RES2"
+        ],
+        "at": "Engine Mount"
+      },
+      "EngineSound": {
+        "parent": "RSound",
+        "add": [
+          "RealisticEngineSound"
+        ]
+      },
+      "Fuel Hose End": {
+        "parent": "root",
+        "layer": 2,
+        "add": [
+          "CapsuleCollider"
+        ],
+        "CapsuleCollider": {
+          "isTrigger": true,
+          "radius": 0.1,
+          "height": 0.5,
+          "enabled": false
+        },
+        "at": "Fuel Inlet",
+        "position": [
+          -0.5,
+          0,
+          0
+        ]
+      },
+      "Fuel Inlet": {
+        "layer": 0,
+        "collider": {
+          "shape": "box",
+          "trigger": true,
+          "render": true
+        },
+        "add": [
+          "AudioSource"
+        ],
+        "AudioSource": {
+          "playOnAwake": false,
+          "spatialBlend": 1
+        },
+        "playmaker": {
+          "Syphon": {
+            "globalEvents": [
+              "UseItem"
+            ],
+            "states": {
+              "start": {
+                "actions": [
+                  {
+                    "EnableFSM": {
+                      "gameObject": "Access Collider",
+                      "fsmName": "UseCan",
+                      "enable": false
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "closed"
+                }
+              },
+              "closed": {
+                "transitions": {
+                  "UseItem": "opening"
+                }
+              },
+              "opening": {
+                "actions": [
+                  {
+                    "PlaySound": {
+                      "gameObject": "owner",
+                      "clip": "asset:AudioClip/gastank_cap1",
+                      "volume": 1
+                    }
+                  },
+                  {
+                    "EnableCollider": {
+                      "gameObject": "Access Collider",
+                      "colliderSelect": "Box",
+                      "enable": false
+                    }
+                  },
+                  {
+                    "EnableCollider": {
+                      "gameObject": "Fuel Hose End",
+                      "colliderSelect": "Capsule",
+                      "enable": true
+                    }
+                  },
+                  {
+                    "EnableFSM": {
+                      "gameObject": "Access Collider",
+                      "fsmName": "UseCan",
+                      "enable": true
+                    }
+                  },
+                  {
+                    "AudioStop": {
+                      "gameObject": "owner",
+                      "fadeTime": 0
+                    }
+                  },
+                  {
+                    "NextFrameEvent": {
+                      "sendEvent": "next"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "open"
+                }
+              },
+              "open": {
+                "transitions": {
+                  "UseItem": "closing"
+                }
+              },
+              "closing": {
+                "actions": [
+                  {
+                    "PlaySound": {
+                      "gameObject": "owner",
+                      "clip": "asset:AudioClip/gastank_cap1",
+                      "volume": 1
+                    }
+                  },
+                  {
+                    "EnableCollider": {
+                      "gameObject": "Access Collider",
+                      "colliderSelect": "Box",
+                      "enable": true
+                    }
+                  },
+                  {
+                    "EnableCollider": {
+                      "gameObject": "Fuel Hose End",
+                      "colliderSelect": "Capsule",
+                      "enable": false
+                    }
+                  },
+                  {
+                    "EnableFSM": {
+                      "gameObject": "Access Collider",
+                      "fsmName": "UseCan",
+                      "enable": false
+                    }
+                  },
+                  {
+                    "AudioStop": {
+                      "gameObject": "owner",
+                      "fadeTime": 0
+                    }
+                  },
+                  {
+                    "NextFrameEvent": {
+                      "sendEvent": "next"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "closed"
+                }
+              }
+            }
+          },
+          "CheckLiquidLevel": {
+            "variables": {
+              "float": {
+                "Liquid": 0,
+                "LiquidCapacity": 0
+              },
+              "string": {
+                "FuelType": "",
+                "LiquidString": "",
+                "LiquidCapacityString": ""
+              }
+            },
+            "globalEvents": [
+              "OverItem",
+              "OffItem"
+            ],
+            "global": {
+              "OverItem": "over",
+              "OffItem": "off"
+            },
+            "states": {
+              "off": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_3}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": ""
+                    }
+                  }
+                ]
+              },
+              "over": {
+                "actions": [
+                  {
+                    "GetTag": {
+                      "gameObject": "Access Collider",
+                      "storeResult": "{FuelType}"
+                    }
+                  },
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "Access Collider",
+                      "fsmName": "LiquidAmount",
+                      "variableName": "Liquid",
+                      "storeValue": "{Liquid}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "ConvertFloatToString": {
+                      "floatVariable": "{Liquid}",
+                      "stringVariable": "{LiquidString}",
+                      "format": ".0",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "Access Collider",
+                      "fsmName": "LiquidAmount",
+                      "variableName": "LiquidCapacity",
+                      "storeValue": "{LiquidCapacity}"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": "{FuelType}"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": "{LiquidString}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "ConvertFloatToString": {
+                      "floatVariable": "{LiquidCapacity}",
+                      "stringVariable": "{LiquidCapacityString}",
+                      "format": "0"
+                    }
+                  },
+                  {
+                    "StringAppend2": {
+                      "_string": "{LiquidCapacityString}",
+                      "stringToAdd": "/ ",
+                      "addToEnd": false
+                    }
+                  },
+                  {
+                    "StringAppend2": {
+                      "_string": "{LiquidCapacityString}",
+                      "stringToAdd": "L",
+                      "addToEnd": true
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_3}",
+                      "text": "{LiquidCapacityString}"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": "Syphon Fuel: F"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "Flywheel Axle": {
+        "parent": "root",
+        "add": [
+          "NWH.WheelController3D.WheelController"
+        ],
+        "WheelController": {
+          "wheel.visual": "Flywheel Spin",
+          "wheel.radius": 1.0,
+          "wheel.width": 0.2278,
+          "wheel.mass": 5617,
+          "spring.maxLength": 0.05,
+          "layerMask": []
+        },
+        "at": "Wheel (Heavy Flywheel)"
+      },
+      "Flywheel Spin": {
+        "parent": "Flywheel Axle"
+      },
+      "Wheel (Heavy Flywheel)": {
+        "parent": "Flywheel Spin"
+      },
+      "Flywheel Axle 2": {
+        "parent": "root",
+        "at": "Wheel (Heavy Flywheel).001",
+        "add": [
+          "NWH.WheelController3D.WheelController"
+        ],
+        "WheelController": {
+          "wheel.visual": "Flywheel Spin 2",
+          "wheel.radius": 1.0,
+          "wheel.width": 0.2278,
+          "wheel.mass": 5617,
+          "spring.maxLength": 0.05,
+          "layerMask": []
+        }
+      },
+      "Flywheel Spin 2": {
+        "parent": "Flywheel Axle 2"
+      },
+      "Wheel (Heavy Flywheel).001": {
+        "parent": "Flywheel Spin 2"
+      },
+      "Ignition Key": {
+        "parent": "root",
+        "at": "Ignition Off"
+      },
+      "Throttle Pivot": {
+        "parent": "Throttle Mount",
+        "at": "Lever"
+      },
+      "Lever": {
+        "parent": "Throttle Pivot"
+      },
+      "Throttle Collider": {
+        "parent": "Throttle Pivot",
+        "layer": 0,
+        "collider": {
+          "shape": "box",
+          "trigger": true
+        },
+        "playmaker": {
+          "Throttle": {
+            "variables": {
+              "float": {
+                "position": 0
+              },
+              "string": {
+                "text": ""
+              }
+            },
+            "globalEvents": [
+              "OverItem",
+              "OffItem"
+            ],
+            "global": {
+              "OverItem": "over",
+              "OffItem": "off"
+            },
+            "start": "off",
+            "states": {
+              "off": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_3}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": ""
+                    }
+                  }
+                ]
+              },
+              "over": {
+                "actions": [
+                  {
+                    "ConvertFloatToString": {
+                      "floatVariable": "{position}",
+                      "stringVariable": "{text}",
+                      "format": "0%"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": "Throttle"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": "{text}"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": "More: Left mouse button / Less: Right mouse button"
+                    }
+                  },
+                  {
+                    "GetMouseButtonDown": {
+                      "button": "Left",
+                      "sendEvent": "up",
+                      "inUpdateOnly": true
+                    }
+                  },
+                  {
+                    "GetMouseButtonDown": {
+                      "button": "Right",
+                      "sendEvent": "down",
+                      "inUpdateOnly": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "up": "up",
+                  "down": "down"
+                }
+              },
+              "up": {
+                "actions": [
+                  {
+                    "FloatAdd": {
+                      "floatVariable": "{position}",
+                      "add": 0.1
+                    }
+                  },
+                  {
+                    "FloatClamp": {
+                      "floatVariable": "{position}",
+                      "minValue": 0,
+                      "maxValue": 1
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              },
+              "down": {
+                "actions": [
+                  {
+                    "FloatAdd": {
+                      "floatVariable": "{position}",
+                      "add": -0.1
+                    }
+                  },
+                  {
+                    "FloatClamp": {
+                      "floatVariable": "{position}",
+                      "minValue": 0,
+                      "maxValue": 1
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              }
+            }
+          },
+          "ThrottleLever": {
+            "variables": {
+              "float": {
+                "position": 0,
+                "angle": 0
+              },
+              "object": {
+                "VehicleController": "root:VehicleController"
+              }
+            },
+            "states": {
+              "apply": {
+                "actions": [
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "owner",
+                      "fsmName": "Throttle",
+                      "variableName": "position",
+                      "storeValue": "{position}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "everyFrame": true,
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "input.Throttle",
+                        "setProperty": true,
+                        "FloatParameter": "{position}"
+                      }
+                    }
+                  },
+                  {
+                    "SetFloatValue": {
+                      "floatVariable": "{angle}",
+                      "floatValue": "{position}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "FloatMultiply": {
+                      "floatVariable": "{angle}",
+                      "multiplyBy": -40,
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetRotation": {
+                      "gameObject": "Throttle Pivot",
+                      "xAngle": "{angle}",
+                      "space": "Self",
+                      "everyFrame": true
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "Gear Collider": {
+        "parent": "root",
+        "layer": 0,
+        "collider": {
+          "shape": "box",
+          "trigger": true
+        },
+        "playmaker": {
+          "GearClick": {
+            "variables": {
+              "string": {
+                "gear": "N"
+              },
+              "object": {
+                "VehicleController": "root:VehicleController"
+              }
+            },
+            "globalEvents": [
+              "OverItem",
+              "OffItem"
+            ],
+            "global": {
+              "OverItem": "over",
+              "OffItem": "off"
+            },
+            "start": "off",
+            "states": {
+              "off": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_3}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": ""
+                    }
+                  }
+                ]
+              },
+              "over": {
+                "actions": [
+                  {
+                    "GetProperty": {
+                      "everyFrame": true,
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "powertrain.transmission.GearName",
+                        "StringParameter": "{gear}"
+                      }
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": "Gear"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": "{gear}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": "Up: Left mouse button / Down: Right mouse button"
+                    }
+                  },
+                  {
+                    "GetMouseButtonDown": {
+                      "button": "Left",
+                      "sendEvent": "up",
+                      "inUpdateOnly": true
+                    }
+                  },
+                  {
+                    "GetMouseButtonDown": {
+                      "button": "Right",
+                      "sendEvent": "down",
+                      "inUpdateOnly": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "up": "up",
+                  "down": "down"
+                }
+              },
+              "up": {
+                "actions": [
+                  {
+                    "SetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "input.ShiftUp",
+                        "setProperty": true,
+                        "BoolParameter": true
+                      }
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              },
+              "down": {
+                "actions": [
+                  {
+                    "SetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "input.ShiftDown",
+                        "setProperty": true,
+                        "BoolParameter": true
+                      }
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Gear Lever Joint": {
+        "parent": "root",
+        "at": "Gear Lever Mount",
+        "playmaker": {
+          "gearChange": {
+            "variables": {
+              "int": {
+                "gear": 0
+              }
+            },
+            "start": "N",
+            "states": {
+              "N": {
+                "actions": [
+                  {
+                    "GetFsmInt": {
+                      "gameObject": "root",
+                      "fsmName": "RpmGear",
+                      "variableName": "gear",
+                      "storeValue": "{gear}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetRotation": {
+                      "gameObject": "owner",
+                      "xAngle": 0,
+                      "yAngle": 0,
+                      "zAngle": 0,
+                      "space": "Self"
+                    }
+                  },
+                  {
+                    "IntCompare": {
+                      "integer1": "{gear}",
+                      "integer2": -1,
+                      "equal": "R",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "IntCompare": {
+                      "integer1": "{gear}",
+                      "integer2": 1,
+                      "equal": "1",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "IntCompare": {
+                      "integer1": "{gear}",
+                      "integer2": 2,
+                      "equal": "2",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "IntCompare": {
+                      "integer1": "{gear}",
+                      "integer2": 3,
+                      "equal": "3",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "IntCompare": {
+                      "integer1": "{gear}",
+                      "integer2": 4,
+                      "equal": "4",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "IntCompare": {
+                      "integer1": "{gear}",
+                      "integer2": 5,
+                      "equal": "5",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "R": "R",
+                  "1": "1",
+                  "2": "2",
+                  "3": "3",
+                  "4": "4",
+                  "5": "5"
+                }
+              },
+              "R": {
+                "actions": [
+                  {
+                    "GetFsmInt": {
+                      "gameObject": "root",
+                      "fsmName": "RpmGear",
+                      "variableName": "gear",
+                      "storeValue": "{gear}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetRotation": {
+                      "gameObject": "owner",
+                      "xAngle": -15,
+                      "yAngle": 4,
+                      "zAngle": -15,
+                      "space": "Self"
+                    }
+                  },
+                  {
+                    "IntCompare": {
+                      "integer1": "{gear}",
+                      "integer2": -1,
+                      "lessThan": "N",
+                      "greaterThan": "N",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "N": "N"
+                }
+              },
+              "1": {
+                "actions": [
+                  {
+                    "GetFsmInt": {
+                      "gameObject": "root",
+                      "fsmName": "RpmGear",
+                      "variableName": "gear",
+                      "storeValue": "{gear}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetRotation": {
+                      "gameObject": "owner",
+                      "xAngle": 15,
+                      "yAngle": 4,
+                      "zAngle": 15,
+                      "space": "Self"
+                    }
+                  },
+                  {
+                    "IntCompare": {
+                      "integer1": "{gear}",
+                      "integer2": 1,
+                      "lessThan": "N",
+                      "greaterThan": "N",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "N": "N"
+                }
+              },
+              "2": {
+                "actions": [
+                  {
+                    "GetFsmInt": {
+                      "gameObject": "root",
+                      "fsmName": "RpmGear",
+                      "variableName": "gear",
+                      "storeValue": "{gear}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetRotation": {
+                      "gameObject": "owner",
+                      "xAngle": -15,
+                      "yAngle": -4,
+                      "zAngle": 15,
+                      "space": "Self"
+                    }
+                  },
+                  {
+                    "IntCompare": {
+                      "integer1": "{gear}",
+                      "integer2": 2,
+                      "lessThan": "N",
+                      "greaterThan": "N",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "N": "N"
+                }
+              },
+              "3": {
+                "actions": [
+                  {
+                    "GetFsmInt": {
+                      "gameObject": "root",
+                      "fsmName": "RpmGear",
+                      "variableName": "gear",
+                      "storeValue": "{gear}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetRotation": {
+                      "gameObject": "owner",
+                      "xAngle": 15,
+                      "yAngle": 0,
+                      "zAngle": 0,
+                      "space": "Self"
+                    }
+                  },
+                  {
+                    "IntCompare": {
+                      "integer1": "{gear}",
+                      "integer2": 3,
+                      "lessThan": "N",
+                      "greaterThan": "N",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "N": "N"
+                }
+              },
+              "4": {
+                "actions": [
+                  {
+                    "GetFsmInt": {
+                      "gameObject": "root",
+                      "fsmName": "RpmGear",
+                      "variableName": "gear",
+                      "storeValue": "{gear}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetRotation": {
+                      "gameObject": "owner",
+                      "xAngle": -15,
+                      "yAngle": 0,
+                      "zAngle": 0,
+                      "space": "Self"
+                    }
+                  },
+                  {
+                    "IntCompare": {
+                      "integer1": "{gear}",
+                      "integer2": 4,
+                      "lessThan": "N",
+                      "greaterThan": "N",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "N": "N"
+                }
+              },
+              "5": {
+                "actions": [
+                  {
+                    "GetFsmInt": {
+                      "gameObject": "root",
+                      "fsmName": "RpmGear",
+                      "variableName": "gear",
+                      "storeValue": "{gear}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetRotation": {
+                      "gameObject": "owner",
+                      "xAngle": 15,
+                      "yAngle": -4,
+                      "zAngle": -15,
+                      "space": "Self"
+                    }
+                  },
+                  {
+                    "IntCompare": {
+                      "integer1": "{gear}",
+                      "integer2": 5,
+                      "lessThan": "N",
+                      "greaterThan": "N",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "N": "N"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Gear Lever Mount": {
+        "layer": 13,
+        "tag": "Hinge",
+        "collider": {
+          "shape": "box",
+          "trigger": true,
+          "render": true
+        },
+        "playmaker": {
+          "vehPart_Attach": {
+            "use": "hinge_attach",
+            "variables": {
+              "string": {
+                "AcceptID": "gearlever"
+              }
+            }
+          },
+          "getParent": {
+            "variables": {
+              "gameObject": {
+                "vehicle": "root"
+              }
+            },
+            "states": {
+              "idle": {}
+            }
+          },
+          "getGearlever": {
+            "variables": {
+              "gameObject": {
+                "gearlever": null
+              }
+            },
+            "states": {
+              "noGearlever": {
+                "actions": [
+                  {
+                    "SetVisibility": {
+                      "gameObject": "owner",
+                      "visible": true
+                    }
+                  },
+                  {
+                    "SetGameObject": {
+                      "variable": "{gearlever}",
+                      "gameObject": null
+                    }
+                  },
+                  {
+                    "GameObjectHasChildren": {
+                      "gameObject": "owner",
+                      "trueEvent": "next",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "hasGearlever"
+                }
+              },
+              "hasGearlever": {
+                "actions": [
+                  {
+                    "SetVisibility": {
+                      "gameObject": "owner",
+                      "visible": false
+                    }
+                  },
+                  {
+                    "GetChild": {
+                      "gameObject": "owner",
+                      "childName": "",
+                      "withTag": "vehPart",
+                      "storeResult": "{gearlever}"
+                    }
+                  },
+                  {
+                    "GameObjectHasChildren": {
+                      "gameObject": "owner",
+                      "falseEvent": "back",
+                      "everyFrame": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "back": "noGearlever"
+                }
+              }
+            }
+          }
+        },
+        "parent": "Gear Lever Joint"
+      },
+      "Clutch Pivot": {
+        "parent": "Clutch Mount",
+        "at": "Clutch Lever"
+      },
+      "Clutch Lever": {
+        "parent": "Clutch Pivot"
+      },
+      "Clutch Collider": {
+        "parent": "Clutch Pivot",
+        "layer": 0,
+        "collider": {
+          "shape": "box",
+          "trigger": true
+        },
+        "playmaker": {
+          "Clutch": {
+            "variables": {
+              "float": {
+                "position": 0
+              },
+              "string": {
+                "text": ""
+              }
+            },
+            "globalEvents": [
+              "OverItem",
+              "OffItem"
+            ],
+            "global": {
+              "OverItem": "over",
+              "OffItem": "off"
+            },
+            "start": "off",
+            "states": {
+              "off": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_3}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": ""
+                    }
+                  }
+                ]
+              },
+              "over": {
+                "actions": [
+                  {
+                    "ConvertFloatToString": {
+                      "floatVariable": "{position}",
+                      "stringVariable": "{text}",
+                      "format": "0%"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": "Clutch"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": "{text}"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": "Pull: Left mouse button / Release: Right mouse button"
+                    }
+                  },
+                  {
+                    "GetMouseButtonDown": {
+                      "button": "Left",
+                      "sendEvent": "up",
+                      "inUpdateOnly": true
+                    }
+                  },
+                  {
+                    "GetMouseButtonDown": {
+                      "button": "Right",
+                      "sendEvent": "down",
+                      "inUpdateOnly": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "up": "up",
+                  "down": "down"
+                }
+              },
+              "up": {
+                "actions": [
+                  {
+                    "FloatAdd": {
+                      "floatVariable": "{position}",
+                      "add": 0.1
+                    }
+                  },
+                  {
+                    "FloatClamp": {
+                      "floatVariable": "{position}",
+                      "minValue": 0,
+                      "maxValue": 1
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              },
+              "down": {
+                "actions": [
+                  {
+                    "FloatAdd": {
+                      "floatVariable": "{position}",
+                      "add": -0.1
+                    }
+                  },
+                  {
+                    "FloatClamp": {
+                      "floatVariable": "{position}",
+                      "minValue": 0,
+                      "maxValue": 1
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              }
+            }
+          },
+          "ClutchLever": {
+            "variables": {
+              "float": {
+                "position": 0,
+                "angle": 0
+              },
+              "object": {
+                "VehicleController": "root:VehicleController"
+              }
+            },
+            "states": {
+              "apply": {
+                "actions": [
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "owner",
+                      "fsmName": "Clutch",
+                      "variableName": "position",
+                      "storeValue": "{position}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "everyFrame": true,
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "input.Clutch",
+                        "setProperty": true,
+                        "FloatParameter": "{position}"
+                      }
+                    }
+                  },
+                  {
+                    "SetFloatValue": {
+                      "floatVariable": "{angle}",
+                      "floatValue": "{position}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "FloatMultiply": {
+                      "floatVariable": "{angle}",
+                      "multiplyBy": -40,
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetRotation": {
+                      "gameObject": "Clutch Pivot",
+                      "xAngle": "{angle}",
+                      "space": "Self",
+                      "everyFrame": true
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "InteriorLight Lamp": {
+        "parent": "InteriorLight",
+        "at": "InteriorLight",
+        "position": [
+          0,
+          -0.06,
+          0
+        ],
+        "add": [
+          "Light"
+        ],
+        "Light": {
+          "type": "Point",
+          "range": 2.5,
+          "intensity": 1.2,
+          "color": [
+            1,
+            0.86,
+            0.62,
+            1
+          ],
+          "shadows": "None"
+        }
+      },
+      "InteriorLight Collider": {
+        "layer": 0,
+        "collider": {
+          "shape": "box",
+          "trigger": true
+        },
+        "playmaker": {
+          "LightSwitch": {
+            "variables": {
+              "bool": {
+                "on": false
+              }
+            },
+            "globalEvents": [
+              "OverItem",
+              "OffItem"
+            ],
+            "global": {
+              "OverItem": "over",
+              "OffItem": "off"
+            },
+            "start": "init",
+            "states": {
+              "init": {
+                "actions": [
+                  {
+                    "ActivateGameObject": {
+                      "gameObject": "InteriorLight Lamp",
+                      "activate": "{on}"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "off"
+                }
+              },
+              "off": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": ""
+                    }
+                  }
+                ]
+              },
+              "over": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": "Light"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": "Switch: Left mouse button"
+                    }
+                  },
+                  {
+                    "GetMouseButtonDown": {
+                      "button": "Left",
+                      "sendEvent": "switch",
+                      "inUpdateOnly": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "switch": "switch"
+                }
+              },
+              "switch": {
+                "actions": [
+                  {
+                    "PlaySound": {
+                      "gameObject": "owner",
+                      "clip": "asset:AudioClip/switch1",
+                      "volume": 1
+                    }
+                  },
+                  {
+                    "BoolFlip": {
+                      "boolVariable": "{on}"
+                    }
+                  },
+                  {
+                    "ActivateGameObject": {
+                      "gameObject": "InteriorLight Lamp",
+                      "activate": "{on}"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Dashboard": {
+        "parent": "root",
+        "at": "Dashboard Collider",
+        "align": "Dashboard Collider",
+        "layer": 2,
+        "collider": {
+          "shape": "box",
+          "trigger": true,
+          "from": "Dashboard Collider"
+        },
+        "playmaker": {
+          "vehPart_Attach": {
+            "use": "dashboard_attach",
+            "variables": {
+              "string": {
+                "AcceptID": "gauge"
+              }
+            }
+          }
+        }
+      }
+    },
+    "VehicleController": {
+      "stateSettings": "asset:StateSettings/DefaultStateSettings",
+      "powertrain.transmission.transmissionType": "Manual",
+      "input.autoSetInput": false,
+      "input.swapInputInReverse": false,
+      "powertrain.engine.autoStartOnThrottle": false,
+      "powertrain.engine.ignition": false,
+      "powertrain.engine.forcedInduction.useForcedInduction": false,
+      "brakes.brakeWhileIdle": false,
+      "enginePosition": [
+        -0.062,
+        0.731,
+        1.62
+      ],
+      "transmissionPosition": [
+        -0.062,
+        0.731,
+        1.62
+      ],
+      "soundManager.spatialBlend": 1,
+      "soundManager.interiorAttenuation": 0,
+      "soundManager.engineRunningComponent.baseVolume": 0.25,
+      "soundManager.engineRunningComponent.volumeRange": 0.2,
+      "soundManager.engineRunningComponent.pitchRange": 1.6,
+      "soundManager.engineRunningComponent.smoothing": 0.1,
+      "soundManager.engineRunningComponent.maxDistortion": 0.5,
+      "soundManager.engineStartStopComponent.baseVolume": 0.4,
+      "soundManager.gearChangeComponent.baseVolume": 0,
+      "soundManager.crashComponent.baseVolume": 0,
+      "soundManager.transmissionWhineComponent.baseVolume": 0.08,
+      "soundManager.transmissionWhineComponent.maxSpeed": 100,
+      "soundManager.turboWhistleComponent.baseVolume": 0.05,
+      "soundManager.turboFlutterComponent.baseVolume": 0.2,
+      "soundManager.suspensionBumpComponent.baseVolume": 0.5,
+      "soundManager.exhaustPopComponent.popChance": 0.3,
+      "powertrain.differentials.0.DifferentialType": "Locked",
+      "powertrain.differentials.0.stiffness": 1,
+      "powertrain.clutch.slipTorque": 100000,
+      "powertrain.clutch.controlType": "UserInput",
+      "powertrain.transmission.gears": [
+        -2.216,
+        0,
+        3.274,
+        2.093,
+        1.439,
+        1.0,
+        0.817,
+        0.651
+      ]
+    }
+  }
+}

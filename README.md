@@ -39,7 +39,8 @@ was copied from is the **donor**.
 
 Why a donor? Because all the game logic lives in it: fuel, part mounts, damage, doors, pedals,
 input, saving. It's a mountain of PlayMaker FSMs, and the copy keeps all of it working without anyone
-rebuilding a single fucking state machine. That's the plan to change, see [Coming](#coming-no-donor-needed).
+rebuilding a single fucking state machine. Rather build every last bit yourself? See
+[From scratch](#from-scratch).
 
 ## Install
 
@@ -72,6 +73,7 @@ one gets binned and the log bitches about it.
 | Setting | Default | |
 |---|---|---|
 | `Tools.ExportAll` | off | A button. Flip it on, every game object gets exported, it flips itself off. Takes minutes and the game locks up solid until it's done. It hasn't crashed. Leave it alone. |
+| `Tools.HotReload` | off | For modding. Save the `.glb` or `.json` and within a second the template is rebuilt and every spawned copy swapped in place, fitted parts moved over. No save/load dance through Easy Save's molasses. A broken save or a `.json` typo keeps the old version and says why in the log. The car you're sitting in swaps when you get out. Code changes still need a restart. |
 | `Debug.VerboseLog` | off | Log spam, plus FSM and vehicle dumps in `BepInEx/`. |
 
 ## Making one
@@ -95,7 +97,7 @@ one gets binned and the log bitches about it.
 6. **Export.** File > Export > glTF 2.0: *glTF Binary*, *Include > Custom Properties* **on** (forget
    this and nothing loads), *+Y Up* on, *Visible Objects* off. Save into a `sigma_assets` folder.
 7. **Tune** (optional): a `.json` with the same name next to it. See [Tuning](#tuning).
-8. **Load a save.** Log says `custom prefab: 'my_truck' ... from donor 'Outrider'`. Spawn it from
+8. **Load a save** (or turn on *HotReload* and just save the file). Log says `custom prefab: 'my_truck' ... from donor 'Outrider'`. Spawn it from
    Apocaspawner or go hunt for it. Changed the file? Reload the save.
 
 ## What happens to your edits
@@ -177,7 +179,7 @@ anything else; it saves and loads like vanilla. The catalog refreshes when templ
 ```
 
 - `"<Component>": { "<field.path>": value }`: any component on the object. Numbers index lists.
-- `nodes`: objects by their `sigma_id`.
+- `nodes`: objects by Blender object name (or `sigma_id`).
 - `fsm`: PlayMaker values, for every FSM of that name on the object or below:
   - `"<variable>"`, e.g. `"finalGearRatio": 3.91`
   - `"set:<property.path>"`, every SetProperty writing it, e.g. `"set:powertrain.engine.idleRPM": 650`
@@ -212,27 +214,112 @@ loaded save, `Spawn`. Components you add aren't saved, so saves never depend on 
 | `FindNode(copy, id)`, `IdOf(obj)` | Objects by `sigma_id`, and back. |
 | `Spawn(info, position, rotation)` | Spawn a saved copy. |
 
-## Coming: no donor needed
+## From scratch
 
-Not built yet. The plan:
+No donor, no game ids anywhere in the file: SigmaMod builds exactly what's in Blender and nothing
+else. Every Blender object (empty or mesh) becomes an object, meshes get their mesh. Then the `.json`
+bolts the guts on, addressing objects by **Blender name**. `body -> doohickey` in Blender, then:
 
-- Tag any Blender object `sigma_from = Outrider/hinge_wheel_FL` (or a game object's `es3local` id)
-  and it gets that game object's logic: FSMs, colliders, audio, scripts. Objects copied out of an
-  export already carry their id.
-- No donor, so you can mix: an Outrider dashboard on Duke wheel hinges on a body built from scratch.
-- FSMs pointing at other game objects get re-pointed at whatever you built from those objects.
-  Anything left dangling gets logged, and the `.json` can wire it up by hand
-  (`"refs": { "switch_ignition": "my_ignition" }`).
-- A chassis root gets a fresh Rigidbody, VehicleController and save identity, plus whatever root
-  logic you tag onto it.
-- The donor way stays as the lazy option.
+```json
+{
+  "my_truck": {
+    "layer": 8, "tag": "Vehicle",
+    "add": ["Rigidbody", "VehicleController"],
+    "Rigidbody": { "mass": 1300 },
+    "nodes": {
+      "doohickey": {
+        "layer": 13, "tag": "Hinge",
+        "add": ["BoxCollider"],
+        "BoxCollider": { "isTrigger": true, "size": [0.6, 0.5, 0.8] },
+        "playmaker": {
+          "getParent": { "variables": { "gameObject": { "vehicle": "root" } }, "states": { "idle": {} } }
+        }
+      }
+    }
+  }
+}
+```
+
+Logic-only objects (a sound source, a trigger) don't have to be in Blender: a `nodes` entry with
+`"parent": "<object or root>"` makes an empty one. Put it somewhere with `"at": "<object>"` (that
+object's position) plus an optional `"position"` offset and `"rotation"`. Numbers in the `.json` are
+Unity space: **X is Blender's -X**, Y is Blender's Z, Z is Blender's -Y. Use `"at"` and skip the
+maths. `"align": "<object>"` turns it to match that object (rotation only, not its fucked-up scale).
+`"parent"` on an object that *is* in Blender moves it under another, staying put in the world.
+
+Per object, in this order: `layer`, `tag`, `add` (component types), `collider`, `playmaker` (new
+FSMs), `<Component>` values, `fsm` tweaks.
+
+**Colliders** come from the object's own mesh: `"collider": "convex"` (or `"box"`, `"sphere"`,
+`"mesh"`, or `{ "shape": "box", "trigger": true, "render": true }`). The mesh stops drawing unless
+`render` is on. A moving car can only collide with **convex** shapes; physics wraps everything else
+in its convex hull, filling dents, tunnels and wheel arches. So build a concave thing out of several
+convex lumps: one object, many loose parts. Each loose part becomes its own collider, and the log
+says when a part's hull is noticeably fatter than the part. That's why the game's own cars are a
+pile of little boxes. You don't need hundreds, just one lump per convex bit. `"mesh"` keeps it
+concave but only works on things that don't move.
+
+Hinges hate scale. A fitted part sits under the hinge and inherits whatever stretched-ass scale your
+marker mesh has. So make the hinge an unscaled empty and borrow the marker for its trigger:
+`"Dashboard": { "parent": "root", "at": "Dash Marker", "align": "Dash Marker", "collider": { "shape":
+"box", "trigger": true, "from": "Dash Marker" } }`. `"from"` builds the box (or sphere) around the
+other object's mesh and hides that mesh.
+
+**FSMs** are written out in full:
+
+```json
+"playmaker": { "Speed": {
+  "variables": { "float": { "speed": 0 } },
+  "states": { "getSpeed": {
+    "actions": [ { "GetSpeed": { "gameObject": "owner", "storeResult": "{speed}", "everyFrame": true } } ],
+    "transitions": {} } } } }
+```
+
+- `variables` by type: `float`, `int`, `bool`, `string`, `vector2`, `vector3`, `quaternion`,
+  `color`, `rect`, `gameObject`, `object`, `material`, `texture`.
+- `states` in order; the first is the start unless `"start"` says otherwise. `"global": {EVENT: state}`
+  for global transitions, `"globalEvents": [...]` for events other FSMs send in.
+- Same FSM on several objects? Put it once in a top-level `"fsms": { "name": {...} }` in the file and
+  write `{ "use": "name", "variables": { "string": { "AcceptID": "radiator" } } }`; what you write is
+  merged over it.
+- Actions are `{ "<ActionType>": { fields } }`, PlayMaker's or the game's own. Skipped fields keep the
+  action's defaults. `"_enabled": false` switches one off.
+- `"{name}"` binds a variable (local, else global like `Hand`), `"{}"` is none, `"owner"` is the FSM's
+  own object. Anything else is a constant.
+- Nested stuff (`FsmProperty`, event targets) takes an object of its fields:
+  `"targetProperty": { "TargetObject": "{vc}", "TargetTypeName": "NWH.VehiclePhysics2.VehicleController", "PropertyName": "powertrain.engine.OutputRPM", "FloatParameter": "{rpm}" }`
+
+**References**, anywhere a value is an object:
+
+| Value | |
+|---|---|
+| `"doohickey"` | Your object by Blender name (or `sigma_id`). `"root"` is the root, `"/body/doohickey"` a path. |
+| `"doohickey:BoxCollider"` | A component on it. |
+| `"asset:AudioClip/wrench1"` | A loaded game asset by type and name. `"asset:<id>"` takes an `es3global` id from an export. |
+| `"file:sounds/idle.wav"` | A file next to your `.glb`: `.wav` (PCM or float) or `.png`/`.jpg`. |
+
+**Cribbing:** *Export All* writes `<name>.fsm.json` next to every `.glb`: every FSM of that game object
+in this exact format. Read how vanilla does shit, copy what you want, rename the references.
+
+**What the game wants** on a car (FSM names other systems look up, tags, layers, hinge rules, fuel
+tank): [docs/vehicle-contract.md](docs/vehicle-contract.md). Short version: engines find the car
+through the hinge's `getParent.vehicle`, then the root's `getFuel`, `getAudio`, `GetRSound`,
+`RpmGear` and `Speed`.
+
+Added components and FSMs get stable save ids. Templates with no donor don't join world spawning;
+use Apocaspawner or `Spawn`.
 
 ## When it fucks up
 
 | Log says | Why |
 |---|---|
 | `nothing loaded (no root object with sigma_id ...)` | No `sigma_id` on the root, or you forgot *Custom Properties* in the export. |
-| `no game prefab found to build on (...)` | Objects from different exports mixed together, or nothing from the game in there at all. |
+| `no game prefab found to build on (...)` | Objects from different exports mixed together. |
+| `no object named '...'` | The `.json` names an object that isn't in the Blender file. Names are case-sensitive. |
+| `no FsmStateAction type named '...'` | Typo in an action name. Check `*.fsm.json` from an export. |
+| Your FSM does nothing, no warning | PlayMaker's own errors go to Unity's `Player.log` (in the game's AppData/LocalLow folder), not BepInEx's, unless `WriteUnityLog = true` in `BepInEx.cfg`. |
+| `no variable '...' (local or global)` | `"{name}"` points at a variable the FSM doesn't define. |
+| `chassis has no WheelControllers under it` | Add `WheelController` to your wheel hinges. |
 | `chassis mass is the default 1 kg` | Set `Rigidbody.mass`. |
 | `no "drive" in the .json` | Set `"drive"`. |
 | `nothing matched` | A `.json` FSM key names something that FSM doesn't have. |

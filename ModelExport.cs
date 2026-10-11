@@ -69,9 +69,50 @@ namespace SigmaMod
                 var model = GltfUnity.Export(go, stats, store);
                 string path = Path.Combine(Dir, name + ".glb");
                 GltfWriter.Save(model, path);
-                Plugin.Log.LogInfo($"export: {name}.glb: {stats} in {sw.ElapsedMilliseconds} ms");
+                int fsms = WriteFsms(go, Path.Combine(Dir, name + ".fsm.json"));
+                Plugin.Log.LogInfo($"export: {name}.glb: {stats}, {fsms} FSMs, in {sw.ElapsedMilliseconds} ms");
             }
             catch (Exception e) { Plugin.Log.LogError("export " + name + " failed: " + e); }
+        }
+
+        // Every FSM of the object as FsmJson definitions, by object: { "<root or /path>": { "<FsmName>": {...} } }.
+        // References inside the object are written as root and /paths, game assets as asset:<Type>/<name>,
+        // anything else as ?<name> (outside the object: not loadable as it is).
+        public static int WriteFsms(GameObject go, string path)
+        {
+            var root = go.transform;
+            string Ref(UnityEngine.Object o)
+            {
+                var t = (o as GameObject)?.transform ?? (o as Component)?.transform;
+                if (t != null && (t == root || t.IsChildOf(root)))
+                {
+                    string p = t == root ? "root" : "/" + PathBelow(root, t);
+                    return o is GameObject || o is Transform ? p : p + ":" + o.GetType().Name;
+                }
+                if (t != null) return "?" + o.name;
+                return "asset:" + o.GetType().Name + "/" + o.name;
+            }
+            var all = new System.Collections.Generic.Dictionary<string, object>();
+            int n = 0;
+            foreach (var pm in go.GetComponentsInChildren<PlayMakerFSM>(true))
+            {
+                string key = pm.transform == root ? "root" : "/" + PathBelow(root, pm.transform);
+                if (!all.TryGetValue(key, out var have)) all[key] = have = new System.Collections.Generic.Dictionary<string, object>();
+                var byName = (System.Collections.Generic.Dictionary<string, object>)have;
+                string fname = pm.FsmName;
+                for (int k = 2; byName.ContainsKey(fname); k++) fname = pm.FsmName + "#" + k;
+                try { byName[fname] = FsmJson.Export(pm, Ref); n++; }
+                catch (Exception e) { byName[fname] = new System.Collections.Generic.Dictionary<string, object> { ["error"] = e.Message }; }
+            }
+            if (n > 0) File.WriteAllText(path, Json.Pretty(all));
+            return n;
+        }
+
+        private static string PathBelow(Transform root, Transform t)
+        {
+            string p = t.name;
+            while (t.parent != null && t.parent != root) { t = t.parent; p = t.name + "/" + p; }
+            return p;
         }
 
         private static string Clean(string s)

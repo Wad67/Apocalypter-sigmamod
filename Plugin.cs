@@ -20,6 +20,7 @@ namespace SigmaMod
         public static ManualLogSource Log;
         public static ConfigEntry<bool> VerboseLogEntry;
         public static ConfigEntry<bool> ExportAllEntry;
+        public static ConfigEntry<bool> HotReloadEntry;
 
         private static Runner _runner;
 
@@ -40,6 +41,8 @@ namespace SigmaMod
                 ExportAllEntry.Value = false;
                 if (_runner != null && !ModelExport.Busy) _runner.StartCoroutine(ModelExport.ExportAll());
             };
+            HotReloadEntry = Config.Bind("Tools", "HotReload", false,
+                "Rebuild templates when their .glb or .json changes and swap spawned copies. For modding.");
             DropOldSettings();
 
             var harmony = new Harmony(GUID);
@@ -74,6 +77,10 @@ namespace SigmaMod
     // main-thread tick and coroutine host, independent of the plugin object's lifetime
     internal class Runner : MonoBehaviour
     {
-        private void Update() => FsmDump.Tick();
+        private void Update()
+        {
+            FsmDump.Tick();
+            HotReload.Tick();
+        }
     }
 }

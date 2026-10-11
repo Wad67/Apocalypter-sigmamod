@@ -21,12 +21,37 @@ namespace SigmaMod
         public static string Write(object v)
         {
             var sb = new StringBuilder();
-            Write(sb, v);
+            Write(sb, v, -1);
             return sb.ToString();
         }
 
-        private static void Write(StringBuilder sb, object v)
+        // indented, short lists of plain values kept on one line
+        public static string Pretty(object v)
         {
+            var sb = new StringBuilder();
+            Write(sb, v, 0);
+            return sb.ToString();
+        }
+
+        private static void Break(StringBuilder sb, int indent)
+        {
+            if (indent < 0) return;
+            sb.Append('\n').Append(' ', indent * 2);
+        }
+
+        private static bool Flat(System.Collections.IEnumerable l)
+        {
+            int n = 0;
+            foreach (var e in l)
+            {
+                if (e is System.Collections.IDictionary || e is System.Collections.IEnumerable && !(e is string) || ++n > 8) return false;
+            }
+            return true;
+        }
+
+        private static void Write(StringBuilder sb, object v, int indent)
+        {
+            int inner = indent < 0 ? -1 : indent + 1;
             switch (v)
             {
                 case null: sb.Append("null"); break;
@@ -53,27 +78,31 @@ namespace SigmaMod
                     {
                         if (!first) sb.Append(',');
                         first = false;
-                        Write(sb, e.Key.ToString());
-                        sb.Append(':');
-                        Write(sb, e.Value);
+                        Break(sb, inner);
+                        Write(sb, e.Key.ToString(), -1);
+                        sb.Append(indent < 0 ? ":" : ": ");
+                        Write(sb, e.Value, inner);
                     }
+                    if (!first) Break(sb, indent);
                     sb.Append('}');
                     break;
                 }
                 case System.Collections.IEnumerable l:
                 {
                     sb.Append('[');
-                    bool first = true;
+                    bool first = true, flat = indent < 0 || Flat(l);
                     foreach (var e in l)
                     {
-                        if (!first) sb.Append(',');
+                        if (!first) sb.Append(flat && indent >= 0 ? ", " : ",");
                         first = false;
-                        Write(sb, e);
+                        if (!flat) Break(sb, inner);
+                        Write(sb, e, flat ? -1 : inner);
                     }
+                    if (!first && !flat) Break(sb, indent);
                     sb.Append(']');
                     break;
                 }
-                default: Write(sb, v.ToString()); break;
+                default: Write(sb, v.ToString(), -1); break;
             }
         }
 

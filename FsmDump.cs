@@ -78,6 +78,7 @@ namespace SigmaMod
                 var v = fsm.FsmVariables;
                 foreach (var x in v.GetAllNamedVariables())
                     sb.Append("  var ").Append(x.VariableType).Append(' ').Append(x.Name).Append(" = ").Append(Val(x)).Append('\n');
+                foreach (var t in fsm.FsmGlobalTransitions) sb.Append("  global [").Append(t.EventName).Append(" -> ").Append(t.ToState).Append("]\n");
                 foreach (var st in fsm.FsmStates)
                 {
                     sb.Append("  state '").Append(st.Name).Append("'");
@@ -146,6 +147,10 @@ namespace SigmaMod
             if (ev != null) return "event " + ev.Name;
             var own = o as FsmOwnerDefault;
             if (own != null) return own.OwnerOption == OwnerDefaultOption.UseOwner ? "owner" : Val(own.GameObject);
+            var et = o as FsmEventTarget;
+            if (et != null)
+                return "target " + et.target + (et.target == FsmEventTarget.EventTarget.GameObject || et.target == FsmEventTarget.EventTarget.GameObjectFSM ? " " + Any(et.gameObject) : "") +
+                       (et.target == FsmEventTarget.EventTarget.GameObjectFSM ? " fsm " + Any(et.fsmName) : "") + (et.fsmComponent != null ? " component " + Any(et.fsmComponent) : "");
             var fv = o as FsmVar;
             if (fv != null) return "var " + fv.Type + " " + fv.variableName + " = " + Any(fv.GetValue());
             if (o is string) return "\"" + o + "\"";

@@ -1,74 +1,182 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
 namespace SigmaMod
 {
-    // Parameter overrides from the JSON file next to a template (<name>.glb -> <name>.json):
+    // The JSON file next to a template (<name>.glb -> <name>.json) defines and tunes it:
     //
-    //   { "<sigma_id>": { "<Component>": { "<field.path>": value, ... },
-    //                     "fsm": { "<FsmName>": { "<key>": value, ... } },
-    //                     "nodes": { "<node sigma_id>": { "<Component>": { ... }, "fsm": { ... } } },
+    //   { "<sigma_id>": { <object spec for the root>,
+    //                     "nodes": { "<object>": { <object spec> }, ... },
     //                     "drive": "rear" | "front" | "all" } }   (chassis only)
     //
-    // <Component> is a component type name on the object (Rigidbody, VehicleController, ...). A path
-    // walks public or serialized fields and properties (powertrain.transmission.gears); lists and
-    // arrays take an index as a path step (powertrain.wheels.0.wheelUAPI). Values convert to the
-    // target type: numbers, bools, strings, enums by name, Vector2/3/4 and Quaternion from arrays,
-    // float/int lists and arrays from arrays, AnimationCurve from [[time, value], ...].
+    // <object> is a Blender object name or a sigma_id. An object spec holds, applied in this order:
+    //   "layer": <number or layer name>, "tag": "<tag>"
+    //   "add": [ "<Component>", ... ]                 components to add (skipped if already there)
+    //   "collider": "convex" | { ... }                colliders from the object's mesh, see Colliders
+    //   "playmaker": { "<FsmName>": { definition } }   new PlayMaker FSMs, see FsmJson
+    //   "<Component>": { "<field.path>": value, ... }  values on a component of the object
+    //   "fsm": { "<FsmName>": { "<key>": value } }      values in FSMs on the object or below it
     //
-    // "fsm" keys, for values the game keeps in PlayMaker FSMs (every FSM of that name on the object or below):
-    //   "<variable>"                   an FSM variable (float, int, bool, string)
+    // <Component> is a type name (Rigidbody, VehicleController, NWH.WheelController3D.WheelController). A
+    // path walks public or serialized fields and properties (powertrain.transmission.gears); lists and
+    // arrays take an index as a path step. Values are JsonValues: numbers, bools, strings, enums by name,
+    // vectors and colours from arrays, AnimationCurve from [[time, value], ...], objects by name or
+    // sigma_id, assets ("asset:AudioClip/name"), files ("file:idle.wav"), and nested classes as objects.
+    //
+    // "fsm" keys:
+    //   "<variable>"                   an FSM variable
     //   "set:<property.path>"          every SetProperty constant writing that property, e.g.
     //                                  "set:powertrain.engine.idleRPM" (the value's type picks the parameter)
-    //   "<State>/<Action>[n].<field>"  a constant field of the n-th action of that type in a state
+    //   "<State>/<Action>[n].<field>"  a field of the n-th action of that type in a state
     //                                  ([n] optional, 0-based), e.g. "condition100/SetFloatValue.floatValue"
     // Edited states are written back with SaveActions, so copies of the template carry them.
     internal static class Overrides
     {
         private const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        private static readonly HashSet<string> Reserved = new HashSet<string> { "nodes", "drive", "fsm", "add", "collider", "playmaker", "layer", "tag", "parent", "position", "rotation", "at", "align" };
 
-        public static void Apply(GameObject root, Dictionary<string, object> spec, Func<string, GameObject> node, string where)
+        private static IEnumerable<KeyValuePair<GameObject, Dictionary<string, object>>> Objects(GameObject root, Dictionary<string, object> spec,
+                                                                                               Func<string, GameObject> node, string where)
         {
-            foreach (var kv in spec)
+            yield return new KeyValuePair<GameObject, Dictionary<string, object>>(root, spec);
+            if (!spec.TryGetValue("nodes", out var nv)) yield break;
+            if (!(nv is Dictionary<string, object> nodes)) { Plugin.Log.LogWarning($"{where}: 'nodes' must be an object"); yield break; }
+            foreach (var nk in nodes)
             {
-                if (kv.Key == "nodes")
+                var go = node(nk.Key);
+                if (go == null) { Plugin.Log.LogWarning($"{where}: nodes: no object named '{nk.Key}' (Blender name or sigma_id)"); continue; }
+                if (nk.Value is Dictionary<string, object> ns) yield return new KeyValuePair<GameObject, Dictionary<string, object>>(go, ns);
+                else Plugin.Log.LogWarning($"{where}: nodes.{nk.Key} must be an object");
+            }
+        }
+
+        // layer, tag, added components and new FSMs, for the root and every node
+        public static void Build(GameObject root, Dictionary<string, object> spec, Func<string, GameObject> node, JsonValues ctx, string where)
+        {
+            Create(spec, node, ctx, where);
+            foreach (var kv in Objects(root, spec, node, where))
+            {
+                var go = kv.Key;
+                var s = kv.Value;
+                string at = go == root ? where : where + "/" + go.name;
+                if (s.TryGetValue("layer", out var lv))
                 {
-                    if (!(kv.Value is Dictionary<string, object> nodes)) { Plugin.Log.LogWarning($"{where}: 'nodes' must be an object"); continue; }
-                    foreach (var nk in nodes)
+                    int layer = lv is double ld ? (int)ld : LayerMask.NameToLayer(lv as string ?? "");
+                    if (layer < 0 || layer > 31) Plugin.Log.LogWarning($"{at}: unknown layer {Json.Write(lv)}");
+                    else go.layer = layer;
+                }
+                if (s.TryGetValue("tag", out var tv) && tv is string tag)
+                    try { go.tag = tag; } catch (UnityException) { Plugin.Log.LogWarning($"{at}: tag '{tag}' is not defined in this game"); }
+                if (s.TryGetValue("add", out var av))
+                {
+                    if (!(av is List<object> adds)) Plugin.Log.LogWarning($"{at}: 'add' must be a list of component type names");
+                    else
+                        foreach (var name in adds.OfType<string>())
+                            try
+                            {
+                                var type = Types.Component(name);
+                                if (go.GetComponent(type) == null) go.AddComponent(type);
+                            }
+                            catch (Exception e) { Plugin.Log.LogWarning($"{at}: add '{name}': {e.Message}"); }
+                }
+                if (s.TryGetValue("collider", out var cv))
+                    try { Colliders.Apply(go, cv, ctx, at); }
+                    catch (Exception e) { Plugin.Log.LogWarning($"{at}: collider: {e.Message}"); }
+                if (s.TryGetValue("playmaker", out var pv))
+                {
+                    if (!(pv is Dictionary<string, object> fsms)) { Plugin.Log.LogWarning($"{at}: 'playmaker' must be an object of FSM name: definition"); continue; }
+                    foreach (var f in fsms)
                     {
-                        var go = node(nk.Key);
-                        if (go == null) { Plugin.Log.LogWarning($"{where}: no object with sigma_id '{nk.Key}'"); continue; }
-                        if (nk.Value is Dictionary<string, object> ns) Components(go, ns, where + "/" + nk.Key);
+                        if (!(f.Value is Dictionary<string, object> def)) { Plugin.Log.LogWarning($"{at}: playmaker.{f.Key} must be an object"); continue; }
+                        try { FsmJson.Build(go, f.Key, def, ctx, at); }
+                        catch (Exception e) { Plugin.Log.LogWarning($"{at}: playmaker '{f.Key}': {e.Message}"); }
                     }
                 }
             }
-            Components(root, spec, where);
         }
 
-        private static void Components(GameObject go, Dictionary<string, object> spec, string where)
+        // "nodes" entries with "parent": an object the Blender file doesn't have becomes a new empty one (logic-only
+        // things like a sound source), placed at the position of the object named by "at", then moved by "position"
+        // [x,y,z] (Unity space, local to the parent: x is Blender's -X), turned to match the object named by "align"
+        // (its rotation, not its scale) and by "rotation" [x,y,z] degrees; one
+        // it has moves under that parent, staying where it is in the world (e.g. under a spinning wheel visual).
+        private static void Create(Dictionary<string, object> spec, Func<string, GameObject> node, JsonValues ctx, string where)
+        {
+            if (!spec.TryGetValue("nodes", out var nv) || !(nv is Dictionary<string, object> nodes)) return;
+            var pending = nodes.Where(kv => kv.Value is Dictionary<string, object> d && d.ContainsKey("parent")).ToList();
+            for (bool progress = true; progress && pending.Count > 0;)
+            {
+                progress = false;
+                foreach (var kv in pending.ToList())
+                {
+                    var d = (Dictionary<string, object>)kv.Value;
+                    var parent = node(d["parent"] as string ?? "");
+                    if (parent == null) continue;
+                    var have = node(kv.Key);
+                    if (have != null)
+                    {
+                        if (parent.transform.IsChildOf(have.transform)) { Plugin.Log.LogWarning($"{where}: nodes.{kv.Key}: can't go under its own child '{parent.name}'"); }
+                        else have.transform.SetParent(parent.transform, true);
+                        pending.Remove(kv);
+                        progress = true;
+                        continue;
+                    }
+                    var go = new GameObject(kv.Key);
+                    go.transform.SetParent(parent.transform, false);
+                    go.layer = parent.layer;
+                    if (d.TryGetValue("at", out var av))
+                    {
+                        var at = node(av as string ?? "");
+                        if (at == null) Plugin.Log.LogWarning($"{where}: nodes.{kv.Key}: \"at\": no object '{av}'");
+                        else go.transform.position = at.transform.position;
+                    }
+                    if (d.TryGetValue("align", out var lv))
+                    {
+                        var al = node(lv as string ?? "");
+                        if (al == null) Plugin.Log.LogWarning($"{where}: nodes.{kv.Key}: \"align\": no object '{lv}'");
+                        else go.transform.rotation = al.transform.rotation;
+                    }
+                    if (d.TryGetValue("position", out var pv)) go.transform.localPosition += (Vector3)ctx.Convert(pv, typeof(Vector3));
+                    if (d.TryGetValue("rotation", out var rv)) go.transform.localRotation = (Quaternion)ctx.Convert(rv, typeof(Quaternion));
+                    ctx.AddNode(kv.Key, go);
+                    pending.Remove(kv);
+                    progress = true;
+                }
+            }
+            foreach (var kv in pending)
+                Plugin.Log.LogWarning($"{where}: nodes.{kv.Key}: parent '{((Dictionary<string, object>)kv.Value)["parent"]}' not found");
+        }
+
+        // component and FSM values, for the root and every node
+        public static void Apply(GameObject root, Dictionary<string, object> spec, Func<string, GameObject> node, JsonValues ctx, string where)
+        {
+            foreach (var kv in Objects(root, spec, node, where))
+                Components(kv.Key, kv.Value, ctx, kv.Key == root ? where : where + "/" + kv.Key.name);
+        }
+
+        private static void Components(GameObject go, Dictionary<string, object> spec, JsonValues ctx, string where)
         {
             foreach (var kv in spec)
             {
-                if (kv.Key == "nodes" || kv.Key == "drive") continue; // drive: read by the chassis setup
                 if (kv.Key == "fsm")
                 {
-                    if (kv.Value is Dictionary<string, object> fsms) Fsms(go, fsms, where);
+                    if (kv.Value is Dictionary<string, object> fsms) Fsms(go, fsms, ctx, where);
                     else Plugin.Log.LogWarning($"{where}: 'fsm' must be an object");
                     continue;
                 }
-                var comp = go.GetComponents<Component>().FirstOrDefault(c => c != null && c.GetType().Name == kv.Key);
-                if (comp == null) { Plugin.Log.LogWarning($"{where}: no {kv.Key} on '{go.name}'"); continue; }
+                if (Reserved.Contains(kv.Key)) continue;
+                Component comp = go.GetComponents<Component>().FirstOrDefault(c => c != null && (c.GetType().Name == kv.Key || c.GetType().FullName == kv.Key));
+                if (comp == null) { Plugin.Log.LogWarning($"{where}: no {kv.Key} on '{go.name}' (add it with \"add\")"); continue; }
                 if (!(kv.Value is Dictionary<string, object> fields)) { Plugin.Log.LogWarning($"{where}/{kv.Key}: must be an object"); continue; }
                 foreach (var f in fields)
                 {
                     try
                     {
-                        Set(comp, f.Key.Split('.'), 0, f.Value);
+                        Set(comp, f.Key.Split('.'), 0, f.Value, ctx);
                         Plugin.Verbose($"{where}: {kv.Key}.{f.Key} = {Json.Write(f.Value)}");
                     }
                     catch (Exception e) { Plugin.Log.LogWarning($"{where}: {kv.Key}.{f.Key}: {e.Message}"); }
@@ -76,7 +184,7 @@ namespace SigmaMod
             }
         }
 
-        private static void Fsms(GameObject go, Dictionary<string, object> spec, string where)
+        private static void Fsms(GameObject go, Dictionary<string, object> spec, JsonValues ctx, string where)
         {
             foreach (var kv in spec)
             {
@@ -94,9 +202,9 @@ namespace SigmaMod
                         var dirty = new HashSet<HutongGames.PlayMaker.FsmState>();
                         try
                         {
-                            if (k.Key.StartsWith("set:", StringComparison.Ordinal)) n += SetProperty(fsm, k.Key.Substring(4), k.Value, dirty);
-                            else if (k.Key.Contains("/")) n += ActionField(fsm, k.Key, k.Value, dirty);
-                            else n += Variable(fsm, k.Key, k.Value);
+                            if (k.Key.StartsWith("set:", StringComparison.Ordinal)) n += SetProperty(fsm, k.Key.Substring(4), k.Value, dirty, ctx);
+                            else if (k.Key.Contains("/")) n += ActionField(fsm, k.Key, k.Value, dirty, ctx);
+                            else n += Variable(fsm, k.Key, k.Value, ctx);
                         }
                         catch (Exception e) { Plugin.Log.LogWarning($"{at}: {e.Message}"); }
                         foreach (var st in dirty) st.SaveActions();
@@ -107,16 +215,16 @@ namespace SigmaMod
             }
         }
 
-        private static int Variable(PlayMakerFSM fsm, string name, object v)
+        private static int Variable(PlayMakerFSM fsm, string name, object v, JsonValues ctx)
         {
             // FindVariable returns null for an unknown name (GetFsmFloat would make a detached placeholder)
             var nv = fsm.FsmVariables.FindVariable(name);
             if (nv == null) return 0;
-            Assign(nv, v);
+            Assign(nv, v, ctx);
             return 1;
         }
 
-        private static int SetProperty(PlayMakerFSM fsm, string property, object v, HashSet<HutongGames.PlayMaker.FsmState> dirty)
+        private static int SetProperty(PlayMakerFSM fsm, string property, object v, HashSet<HutongGames.PlayMaker.FsmState> dirty, JsonValues ctx)
         {
             int n = 0;
             foreach (var st in fsm.FsmStates)
@@ -129,7 +237,7 @@ namespace SigmaMod
                         : p.PropertyType == typeof(int) ? (HutongGames.PlayMaker.NamedVariable)p.IntParameter : p.FloatParameter;
                     if (param == null) continue;
                     if (param.UseVariable) throw new Exception($"state '{st.Name}' writes it from variable '{param.Name}'; set that variable instead");
-                    Assign(param, v);
+                    Assign(param, v, ctx);
                     dirty.Add(st);
                     n++;
                 }
@@ -137,7 +245,7 @@ namespace SigmaMod
         }
 
         // "<State>/<Action>[n].<field>"
-        private static int ActionField(PlayMakerFSM fsm, string key, object v, HashSet<HutongGames.PlayMaker.FsmState> dirty)
+        private static int ActionField(PlayMakerFSM fsm, string key, object v, HashSet<HutongGames.PlayMaker.FsmState> dirty, JsonValues ctx)
         {
             int slash = key.IndexOf('/'), dot = key.IndexOf('.', slash);
             if (dot < 0) throw new Exception("expected <State>/<Action>[n].<field>");
@@ -151,31 +259,31 @@ namespace SigmaMod
             var f = a.GetType().GetField(field, Flags);
             if (f == null) throw new Exception($"{action} has no field '{field}'");
             var cur = f.GetValue(a);
-            if (cur is HutongGames.PlayMaker.NamedVariable nv)
+            if (cur is HutongGames.PlayMaker.NamedVariable nv && !(v is string s && s.StartsWith("{")))
             {
                 if (nv.UseVariable) throw new Exception($"it reads variable '{nv.Name}'; set that variable instead");
-                Assign(nv, v);
+                Assign(nv, v, ctx);
             }
-            else f.SetValue(a, Convert(v, f.FieldType));
+            else f.SetValue(a, ctx.Convert(v, f.FieldType, cur));
             dirty.Add(st);
             return 1;
         }
 
-        private static void Assign(HutongGames.PlayMaker.NamedVariable nv, object v)
+        // a variable's or parameter's value, keeping its name and binding
+        private static void Assign(HutongGames.PlayMaker.NamedVariable nv, object v, JsonValues ctx)
         {
             switch (nv)
             {
-                case HutongGames.PlayMaker.FsmFloat x: x.Value = (float)Convert(v, typeof(float)); break;
-                case HutongGames.PlayMaker.FsmInt x: x.Value = (int)Convert(v, typeof(int)); break;
-                case HutongGames.PlayMaker.FsmBool x: x.Value = (bool)Convert(v, typeof(bool)); break;
-                case HutongGames.PlayMaker.FsmString x: x.Value = (string)Convert(v, typeof(string)); break;
-                case HutongGames.PlayMaker.FsmVector3 x: x.Value = (Vector3)Convert(v, typeof(Vector3)); break;
-                default: throw new Exception($"{nv.GetType().Name} values are not supported");
+                case HutongGames.PlayMaker.FsmGameObject g: g.Value = ctx.Ref(v as string, typeof(GameObject)) as GameObject; return;
+                case HutongGames.PlayMaker.FsmObject o: o.Value = ctx.Ref(v as string, typeof(UnityEngine.Object)); return;
             }
+            var vp = nv.GetType().GetProperty("Value", BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            if (vp == null || !vp.CanWrite) throw new Exception($"{nv.GetType().Name} values are not supported");
+            vp.SetValue(nv, ctx.Convert(v, vp.PropertyType), null);
         }
 
         // sets path[i..] on obj; returns obj, so a struct on the way is written back by its parent
-        private static object Set(object obj, string[] path, int i, object json)
+        private static object Set(object obj, string[] path, int i, object json, JsonValues ctx)
         {
             if (obj == null) throw new Exception($"'{path[i - 1]}' is null");
             string step = path[i];
@@ -185,7 +293,7 @@ namespace SigmaMod
             {
                 if (idx < 0 || idx >= list.Count) throw new Exception($"index {idx} out of range ({list.Count})");
                 var et = ElementType(list.GetType());
-                list[idx] = last ? Convert(json, et) : Set(list[idx], path, i + 1, json);
+                list[idx] = last ? ctx.Convert(json, et, list[idx]) : Set(list[idx], path, i + 1, json, ctx);
                 return obj;
             }
 
@@ -193,7 +301,7 @@ namespace SigmaMod
             var f = FindField(t, step);
             if (f != null)
             {
-                f.SetValue(obj, last ? Convert(json, f.FieldType) : Set(f.GetValue(obj), path, i + 1, json));
+                f.SetValue(obj, last ? ctx.Convert(json, f.FieldType, f.GetValue(obj)) : Set(f.GetValue(obj), path, i + 1, json, ctx));
                 return obj;
             }
             var p = t.GetProperty(step, Flags);
@@ -202,9 +310,9 @@ namespace SigmaMod
                 if (last || p.PropertyType.IsValueType)
                 {
                     if (!p.CanWrite) throw new Exception($"'{step}' is read-only");
-                    p.SetValue(obj, last ? Convert(json, p.PropertyType) : Set(p.GetValue(obj), path, i + 1, json));
+                    p.SetValue(obj, last ? ctx.Convert(json, p.PropertyType, p.CanRead ? p.GetValue(obj) : null) : Set(p.GetValue(obj), path, i + 1, json, ctx));
                 }
-                else Set(p.GetValue(obj), path, i + 1, json);
+                else Set(p.GetValue(obj), path, i + 1, json, ctx);
                 return obj;
             }
             throw new Exception($"{t.Name} has no '{step}'");
@@ -221,40 +329,5 @@ namespace SigmaMod
         }
 
         private static Type ElementType(Type t) => t.IsArray ? t.GetElementType() : t.IsGenericType ? t.GetGenericArguments()[0] : typeof(object);
-
-        private static object Convert(object v, Type t)
-        {
-            if (t == typeof(object)) return v;
-            if (t.IsEnum) return Enum.Parse(t, v.ToString(), true);
-            if (t == typeof(string)) return v?.ToString();
-            if (t == typeof(bool)) return v is bool b ? b : bool.Parse(v.ToString());
-            if (t == typeof(float)) return System.Convert.ToSingle(v, CultureInfo.InvariantCulture);
-            if (t == typeof(double)) return System.Convert.ToDouble(v, CultureInfo.InvariantCulture);
-            if (t == typeof(int)) return System.Convert.ToInt32(v, CultureInfo.InvariantCulture);
-            if (t == typeof(long)) return System.Convert.ToInt64(v, CultureInfo.InvariantCulture);
-            var arr = v as List<object>;
-            float F(int k) => System.Convert.ToSingle(arr[k], CultureInfo.InvariantCulture);
-            if (t == typeof(Vector2)) return new Vector2(F(0), F(1));
-            if (t == typeof(Vector3)) return new Vector3(F(0), F(1), F(2));
-            if (t == typeof(Vector4)) return new Vector4(F(0), F(1), F(2), F(3));
-            if (t == typeof(Quaternion)) return arr.Count == 3 ? Quaternion.Euler(F(0), F(1), F(2)) : new Quaternion(F(0), F(1), F(2), F(3));
-            if (t == typeof(Color)) return new Color(F(0), F(1), F(2), arr.Count > 3 ? F(3) : 1f);
-            if (t == typeof(AnimationCurve))
-                return new AnimationCurve(arr.Cast<List<object>>().Select(k => new Keyframe(System.Convert.ToSingle(k[0], CultureInfo.InvariantCulture),
-                                                                                             System.Convert.ToSingle(k[1], CultureInfo.InvariantCulture))).ToArray());
-            if (t.IsArray && arr != null)
-            {
-                var a = Array.CreateInstance(t.GetElementType(), arr.Count);
-                for (int k = 0; k < arr.Count; k++) a.SetValue(Convert(arr[k], t.GetElementType()), k);
-                return a;
-            }
-            if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(List<>) && arr != null)
-            {
-                var l = (IList)Activator.CreateInstance(t);
-                foreach (var e in arr) l.Add(Convert(e, t.GetGenericArguments()[0]));
-                return l;
-            }
-            throw new Exception($"cannot convert {Json.Write(v)} to {t.Name}");
-        }
     }
 }

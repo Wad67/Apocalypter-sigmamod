@@ -85,10 +85,14 @@ namespace SigmaMod
             if (!(__result is IList list)) return;
             try
             {
-                var keys = new HashSet<string>(list.Cast<object>().Select(e => _entry.GetField("Key")?.GetValue(e) as string).Where(k => k != null));
                 foreach (var t in CustomPrefabs.All)
                 {
-                    if (t.Prefab == null || keys.Contains(t.Id)) continue;
+                    if (t.Prefab == null) continue;
+                    // Apocaspawner's scan also lists live root vehicles by base name; a spawned copy of a template would
+                    // stand in for it (and get cloned with whatever is fitted to it). The template replaces those.
+                    var same = list.Cast<object>().Where(x => _entry.GetField("Key")?.GetValue(x) as string == t.Id).ToList();
+                    if (same.Any(x => _entry.GetField("Prefab")?.GetValue(x) as GameObject == t.Prefab)) continue;
+                    foreach (var x in same) list.Remove(x);
                     var e = Activator.CreateInstance(_entry, true);
                     Set(e, "Key", t.Id);
                     Set(e, "Display", t.Name);
