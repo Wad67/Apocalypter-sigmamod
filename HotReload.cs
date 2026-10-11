@@ -144,6 +144,13 @@ namespace SigmaMod
                     nb.velocity = body.velocity;
                     nb.angularVelocity = body.angularVelocity;
                 }
+                // things jointed to the old copy (a hitched trailer) hold on to the new one; left alone, their
+                // joint would lose its body and pin them to the spot in the world
+                int joints = 0;
+                if (body != null && nb != null)
+                    foreach (var j in UnityEngine.Object.FindObjectsOfType<Joint>())
+                        if (j != null && j.connectedBody == body && !j.transform.IsChildOf(old.transform)) { j.connectedBody = nb; joints++; }
+                if (joints > 0) Plugin.Log.LogInfo($"hot reload: {joints} joint(s) to {old.name} moved to {copy.name}");
                 Plugin.Log.LogInfo($"hot reload: {old.name} -> {copy.name}, {moved} fitted parts moved over" +
                                    (dropped > 0 ? $", {dropped} dropped (their mount is gone)" : ""));
             }
@@ -160,7 +167,9 @@ namespace SigmaMod
         }
 
         // FSMs of a moved part that hold the old copy (a vehicle, hinge or VehicleController they looked up when
-        // fitted) start over, so they look up the new one
+        // fitted) run the state they are in again, so they look up the new one and set it up as they set up the
+        // old (a wheel's size and grip on its new hinge). Starting them over would leave them waiting for an
+        // event the move doesn't send (the part being fitted).
         private static void Restart(GameObject part, Transform oldCopy)
         {
             bool Old(UnityEngine.Object o)
@@ -173,7 +182,10 @@ namespace SigmaMod
             {
                 var v = pm.FsmVariables;
                 if (!v.GameObjectVariables.Any(x => Old(x.Value)) && !v.ObjectVariables.Any(x => Old(x.Value))) continue;
-                if (!string.IsNullOrEmpty(pm.Fsm.StartState)) pm.SetState(pm.Fsm.StartState);
+                var state = !string.IsNullOrEmpty(pm.ActiveStateName) ? pm.ActiveStateName : pm.Fsm.StartState;
+                // one FSM failing (a lookup not ready on the new copy) mustn't keep the part's others from running
+                try { if (!string.IsNullOrEmpty(state)) pm.SetState(state); }
+                catch (Exception e) { Plugin.Verbose($"hot reload: {part.name} '{pm.FsmName}' state '{state}': {e.Message}"); }
             }
         }
     }

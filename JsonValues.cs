@@ -151,9 +151,24 @@ namespace SigmaMod
             switch (nv)
             {
                 case FsmGameObject g: g.Value = Ref(v as string, typeof(GameObject)) as GameObject; break;
-                case FsmObject o: o.Value = Ref(v as string, o.ObjectType ?? typeof(UnityEngine.Object)); break;
+                case FsmObject o:
+                    // { "type": "<UnityEngine.Object type>", "value": <ref> }: a typed object (GetComponent
+                    // takes the component type from its store variable's type)
+                    if (v is Dictionary<string, object> od)
+                    {
+                        if (od.TryGetValue("type", out var ot)) o.ObjectType = Types.Find(ot as string ?? "", typeof(UnityEngine.Object));
+                        od.TryGetValue("value", out v);
+                    }
+                    o.Value = Ref(v as string, o.ObjectType ?? typeof(UnityEngine.Object));
+                    break;
                 case FsmEnum e:
-                    if (e.EnumType == null || !e.EnumType.IsEnum) throw new Exception("enum parameter with no enum type");
+                    // { "type": "<enum type>", "value": "<name>" } where nothing gives the type (a SetProperty's EnumParameter)
+                    if (v is Dictionary<string, object> ed)
+                    {
+                        if (ed.TryGetValue("type", out var et)) e.EnumType = Types.Find(et as string ?? "", typeof(Enum));
+                        ed.TryGetValue("value", out v);
+                    }
+                    if (e.EnumType == null || !e.EnumType.IsEnum) throw new Exception("enum parameter with no enum type (give { \"type\": ..., \"value\": ... })");
                     e.Value = (Enum)Convert(v, e.EnumType);
                     break;
                 default:

@@ -503,7 +503,8 @@ namespace SigmaMod
                 Plugin.Log.LogWarning($"custom prefab: '{id}': chassis mass is the default 1 kg; set Rigidbody.mass in the .json");
         }
 
-        // Drive layout from "drive" in the chassis .json. SetDefaults builds a front, a rear and a centre
+        // Drive layout from "drive" in the chassis .json ("front", "rear", "all", or an axle number, front first:
+        // with more than two axles "rear" is the second one). SetDefaults builds a front, a rear and a centre
         // differential (all open) with the gearbox on the centre one: all-wheel drive, 50/50. Front or rear
         // drive puts the gearbox straight onto that axle's differential and drops the other two, so the
         // undriven axle's wheels only steer and brake.
@@ -516,7 +517,23 @@ namespace SigmaMod
                 pt.differentials = new List<NWH.VehiclePhysics2.Powertrain.DifferentialComponent>();
                 return "single-wheel (gearbox straight to the wheel)";
             }
-            string drive = overrides != null && overrides.TryGetValue("drive", out var d) ? (d as string)?.Trim().ToLowerInvariant() : null;
+            object dv = null;
+            overrides?.TryGetValue("drive", out dv);
+            // a number: that axle (0 = the front one; NWH wires a differential to the first two axles only)
+            if (dv is double dn)
+            {
+                int n = (int)dn;
+                if (n < 0 || n > 1 || n >= pt.wheelGroups.Count || pt.differentials.Count != 3)
+                {
+                    Plugin.Log.LogWarning($"custom prefab: '{id}': \"drive\": {n}: only axle 0 or 1 of {pt.wheelGroups.Count} can be driven; all-wheel drive");
+                    return "all-wheel";
+                }
+                var nd = pt.differentials[n];
+                pt.transmission.Output = nd;
+                pt.differentials = new List<NWH.VehiclePhysics2.Powertrain.DifferentialComponent> { nd };
+                return $"axle {n} ({pt.wheelGroups[n].name})";
+            }
+            string drive = (dv as string)?.Trim().ToLowerInvariant();
             if (drive == null)
             {
                 Plugin.Log.LogWarning($"custom prefab: '{id}': no \"drive\" in the .json (rear, front or all); all-wheel drive");

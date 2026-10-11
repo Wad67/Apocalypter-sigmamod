@@ -1,6 +1,6 @@
 # SigmaMod
 
-> **⚠ Very fucking early.** This is a 0.1 that has barely been driven in game. Expect things to break,
+> **⚠ Very fucking early.** This is a 0.2 that has barely been driven in game. Expect things to break,
 > saves to get weird, templates to load wrong and the log to scream at you. Back up your saves and
 > expect to lose some hair.
 
@@ -21,6 +21,12 @@ was built for.
   idle. Uses the vanilla 2.3L's model for now. Sold where the 2.3L is.
 - **Engine Sim users:** paste `SigmaMod/examples/enginesim/astron_4g52.cfg` onto the end of
   `BepInEx/config/EngineSim.engines.cfg` and the Astron sounds like an Astron.
+- **`examples/sigma_test`**: a from-scratch test rig, every bit of it built in its `.json` with no
+  donor. Engine and radiator mounts, fuel tank you can siphon, ignition key, hand throttle, clutch,
+  gear and steering levers, handbrake, two flywheels on the gearbox, a belt clutch driving a sprung
+  rear axle, wheel, dashboard, radio and headlight hinges, light switch, interior light, tow hitch,
+  load lock volumes and toolsets. It's an ugly frame, not a car; it's there to crib from. Needs Engine
+  Sim 1.3.0 (belt, couplings, windage). Copy both files into `sigma_assets` to spawn it.
 
 Pull them apart in Blender to see how a template is put together.
 
@@ -145,7 +151,9 @@ gearbox) and rebuilds it from your wheels, so it doesn't drive like a reskinned 
 mounts, damage and input still come from the donor.
 
 Set at least `Rigidbody.mass` and `"drive"` (`"rear"`, `"front"`, `"all"`) in the `.json`. Skip
-`drive` and you're stuck with all-wheel drive.
+`drive` and you're stuck with all-wheel drive. Axles count front to back by wheel position; with three
+or more, `"rear"` is just the second one, so say `"drive": 1` and mean it. NWH only puts differentials
+on the first two.
 
 `BepInEx/SigmaMod-chassis-<sigma_id>.txt` dumps every driving value: donor, default, final. The top
 section is the shit you haven't set yet.
@@ -288,6 +296,9 @@ other object's mesh and hides that mesh.
   own object. Anything else is a constant.
 - Nested stuff (`FsmProperty`, event targets) takes an object of its fields:
   `"targetProperty": { "TargetObject": "{vc}", "TargetTypeName": "NWH.VehiclePhysics2.VehicleController", "PropertyName": "powertrain.engine.OutputRPM", "FloatParameter": "{rpm}" }`
+- Some values need a type nothing else gives them. An `object` variable that `GetComponent` stores
+  into: `{ "type": "UnityEngine.MeshFilter", "value": null }`. An enum handed to `SetProperty`:
+  `"EnumParameter": { "type": "UnityEngine.ConfigurableJointMotion", "value": "Locked" }`.
 
 **References**, anywhere a value is an object:
 

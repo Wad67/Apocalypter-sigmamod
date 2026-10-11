@@ -16,6 +16,7 @@ namespace SigmaMod
     //     "variables": { "float": { "Fuel": 0 }, "int": {...}, "bool": {...}, "string": {...}, "vector2": {...},
     //                    "vector3": {...}, "quaternion": {...}, "color": {...}, "rect": {...},
     //                    "gameObject": { "tank": "fuel_tank" }, "object": {...}, "material": {...}, "texture": {...} },
+    //                    (a typed object: "object": { "mf": { "type": "UnityEngine.MeshFilter", "value": null } })
     //     "globalEvents": [ "SOME_EVENT" ],              events other FSMs may send to this one
     //     "start": "<state>",                             default: the first state
     //     "global": { "<EVENT>": "<state>" },             global transitions

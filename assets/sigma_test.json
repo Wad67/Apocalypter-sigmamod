@@ -362,6 +362,212 @@
         }
       },
       "start": "partMissing"
+    },
+    "wheel_attach": {
+      "variables": {
+        "string": {
+          "ID": "",
+          "AcceptID": ""
+        },
+        "gameObject": {
+          "Item": null,
+          "Hinge": null,
+          "Fitted": null
+        }
+      },
+      "states": {
+        "partMissing": {
+          "actions": [
+            {
+              "SendEvent": {
+                "eventTarget": "{UI_Canvas}",
+                "sendEvent": "Cursor_Point"
+              }
+            },
+            {
+              "TriggerEvent": {
+                "gameObject": "owner",
+                "trigger": "OnTriggerEnter",
+                "collideTag": "vehPartRemoved",
+                "sendEvent": "next",
+                "storeCollider": "{Item}"
+              }
+            }
+          ],
+          "transitions": {
+            "next": "checkChild"
+          }
+        },
+        "checkChild": {
+          "actions": [
+            {
+              "GameObjectIsChildOf": {
+                "gameObject": "{Item}",
+                "isChildOf": "{Hand}",
+                "trueEvent": "next",
+                "falseEvent": "back"
+              }
+            }
+          ],
+          "transitions": {
+            "next": "checkID",
+            "back": "partMissing"
+          }
+        },
+        "checkID": {
+          "actions": [
+            {
+              "GetFsmString": {
+                "gameObject": "{Item}",
+                "fsmName": "ID",
+                "variableName": "ID",
+                "storeValue": "{ID}"
+              }
+            },
+            {
+              "StringCompare": {
+                "stringVariable": "{ID}",
+                "compareTo": "{AcceptID}",
+                "equalEvent": "next",
+                "notEqualEvent": "back"
+              }
+            }
+          ],
+          "transitions": {
+            "next": "Over",
+            "back": "partMissing"
+          }
+        },
+        "Over": {
+          "actions": [
+            {
+              "SendEvent": {
+                "eventTarget": "{UI_Canvas}",
+                "sendEvent": "Cursor_Wrench",
+                "everyFrame": true
+              }
+            },
+            {
+              "TriggerEvent": {
+                "gameObject": "owner",
+                "trigger": "OnTriggerExit",
+                "collideTag": "vehPartRemoved",
+                "sendEvent": "back",
+                "storeCollider": "{Item}"
+              }
+            },
+            {
+              "GetButtonDown": {
+                "buttonName": "Use",
+                "sendEvent": "next"
+              }
+            }
+          ],
+          "transitions": {
+            "back": "partMissing",
+            "next": "Attach"
+          }
+        },
+        "Attach": {
+          "actions": [
+            {
+              "PlaySound": {
+                "gameObject": "owner",
+                "clip": "asset:AudioClip/wrench1",
+                "volume": 1
+              }
+            },
+            {
+              "GetOwner": {
+                "storeGameObject": "{Hinge}"
+              }
+            },
+            {
+              "SendEvent": {
+                "eventTarget": "{PlayerCamera}/GrabItem",
+                "sendEvent": "not_Hold"
+              }
+            },
+            {
+              "SendEvent": {
+                "eventTarget": "{UI_Canvas}",
+                "sendEvent": "Cursor_Point"
+              }
+            },
+            {
+              "DestroyComponent": {
+                "gameObject": "{Item}",
+                "component": "UnityEngine.Rigidbody"
+              }
+            },
+            {
+              "SetTag": {
+                "gameObject": "{Item}",
+                "tag": "vehPart"
+              }
+            },
+            {
+              "SetLayer": {
+                "gameObject": "{Item}",
+                "layer": 8
+              }
+            },
+            {
+              "SetParent": {
+                "gameObject": "{Item}",
+                "parent": "{Hinge}",
+                "worldPositionStays": true,
+                "resetLocalPosition": true,
+                "resetLocalRotation": true
+              }
+            },
+            {
+              "NextFrameEvent": {
+                "sendEvent": "back"
+              }
+            }
+          ],
+          "transitions": {
+            "back": "check"
+          }
+        },
+        "check": {
+          "actions": [
+            {
+              "GetChild": {
+                "gameObject": "owner",
+                "childName": "",
+                "withTag": "vehPart",
+                "storeResult": "{Fitted}"
+              }
+            },
+            {
+              "GameObjectIsNull": {
+                "gameObject": "{Fitted}",
+                "isNull": "none",
+                "isNotNull": "fitted"
+              }
+            }
+          ],
+          "transitions": {
+            "none": "partMissing",
+            "fitted": "partAttached"
+          }
+        },
+        "partAttached": {
+          "actions": [
+            {
+              "Wait": {
+                "time": 0.25
+              }
+            }
+          ],
+          "transitions": {
+            "FINISHED": "check"
+          }
+        }
+      },
+      "start": "check"
     }
   },
   "sigma_chassis_test": {
@@ -369,12 +575,13 @@
     "tag": "Vehicle",
     "add": [
       "Rigidbody",
-      "VehicleController"
+      "VehicleController",
+      "NWH.VehiclePhysics2.Modules.FlipOver.FlipOverModuleWrapper"
     ],
     "Rigidbody": {
       "mass": 1115
     },
-    "drive": "rear",
+    "drive": 1,
     "playmaker": {
       "sigma_hello": {
         "variables": {
@@ -715,6 +922,807 @@
         },
         "states": {
           "idle": {}
+        }
+      },
+      "TrailerAttach": {
+        "variables": {
+          "float": {
+            "speed": 0
+          },
+          "bool": {
+            "trailerAttached": false,
+            "trailerInRange_bool": false
+          },
+          "vector3": {
+            "attacher_pos": [
+              0,
+              0,
+              0
+            ],
+            "hitch_pos": [
+              0,
+              0,
+              0
+            ]
+          },
+          "gameObject": {
+            "attacher": null,
+            "Trailer": null
+          },
+          "object": {
+            "ConfigurableJoint": {
+              "type": "UnityEngine.ConfigurableJoint",
+              "value": null
+            },
+            "Rigidbody": {
+              "type": "UnityEngine.Rigidbody",
+              "value": null
+            }
+          }
+        },
+        "start": "trailerOff",
+        "states": {
+          "trailerOff": {
+            "actions": [
+              {
+                "UiTextSetText": {
+                  "gameObject": "{UI_AttachTrailer}",
+                  "text": ""
+                }
+              },
+              {
+                "BoolTest": {
+                  "boolVariable": "{trailerAttached}",
+                  "isTrue": "next2",
+                  "everyFrame": true
+                }
+              },
+              {
+                "SphereCast2": {
+                  "fromGameObject": "hitch_raycast",
+                  "radius": 0.2,
+                  "direction": [
+                    0,
+                    0,
+                    -1
+                  ],
+                  "space": "Self",
+                  "maxDistance": 0.2,
+                  "storeDidHit": "{trailerInRange_bool}",
+                  "storeHitObject": "{Trailer}",
+                  "repeatInterval": 0.25,
+                  "layerMask": [
+                    20
+                  ]
+                }
+              },
+              {
+                "BoolTest": {
+                  "boolVariable": "{trailerInRange_bool}",
+                  "isTrue": "next",
+                  "everyFrame": true
+                }
+              }
+            ],
+            "transitions": {
+              "next": "canAttach",
+              "next2": "trailerOn"
+            }
+          },
+          "canAttach": {
+            "actions": [
+              {
+                "SphereCast2": {
+                  "fromGameObject": "hitch_raycast",
+                  "radius": 0.2,
+                  "direction": [
+                    0,
+                    0,
+                    -1
+                  ],
+                  "space": "Self",
+                  "maxDistance": 0.2,
+                  "storeDidHit": "{trailerInRange_bool}",
+                  "storeHitObject": "{Trailer}",
+                  "repeatInterval": 0.25,
+                  "layerMask": [
+                    20
+                  ]
+                }
+              },
+              {
+                "BoolTest": {
+                  "boolVariable": "{trailerInRange_bool}",
+                  "isFalse": "back",
+                  "everyFrame": true
+                }
+              }
+            ],
+            "transitions": {
+              "back": "trailerOff",
+              "hitchUse": "clear"
+            }
+          },
+          "attach": {
+            "actions": [
+              {
+                "GetChild": {
+                  "gameObject": "{Trailer}",
+                  "childName": "attacher",
+                  "storeResult": "{attacher}"
+                }
+              },
+              {
+                "GetPosition": {
+                  "gameObject": "hitch",
+                  "vector": "{hitch_pos}",
+                  "space": "Self"
+                }
+              },
+              {
+                "GetPosition": {
+                  "gameObject": "{attacher}",
+                  "vector": "{attacher_pos}",
+                  "space": "Self"
+                }
+              },
+              {
+                "AddComponent": {
+                  "gameObject": "{Trailer}",
+                  "component": "UnityEngine.ConfigurableJoint",
+                  "storeComponent": "{ConfigurableJoint}"
+                }
+              },
+              {
+                "GetComponent": {
+                  "gameObject": "owner",
+                  "storeComponent": "{Rigidbody}"
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "connectedBody",
+                    "setProperty": true,
+                    "ObjectParameter": "{Rigidbody}"
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "anchor",
+                    "setProperty": true,
+                    "Vector3Parameter": "{attacher_pos}"
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "autoConfigureConnectedAnchor",
+                    "setProperty": true,
+                    "BoolParameter": false
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "connectedAnchor",
+                    "setProperty": true,
+                    "Vector3Parameter": "{hitch_pos}"
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "xMotion",
+                    "setProperty": true,
+                    "EnumParameter": {
+                      "type": "UnityEngine.ConfigurableJointMotion",
+                      "value": "Locked"
+                    }
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "yMotion",
+                    "setProperty": true,
+                    "EnumParameter": {
+                      "type": "UnityEngine.ConfigurableJointMotion",
+                      "value": "Locked"
+                    }
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "zMotion",
+                    "setProperty": true,
+                    "EnumParameter": {
+                      "type": "UnityEngine.ConfigurableJointMotion",
+                      "value": "Locked"
+                    }
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "angularXMotion",
+                    "setProperty": true,
+                    "EnumParameter": {
+                      "type": "UnityEngine.ConfigurableJointMotion",
+                      "value": "Free"
+                    }
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "angularYMotion",
+                    "setProperty": true,
+                    "EnumParameter": {
+                      "type": "UnityEngine.ConfigurableJointMotion",
+                      "value": "Free"
+                    }
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "angularZMotion",
+                    "setProperty": true,
+                    "EnumParameter": {
+                      "type": "UnityEngine.ConfigurableJointMotion",
+                      "value": "Free"
+                    }
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "projectionDistance",
+                    "setProperty": true,
+                    "FloatParameter": 0.1
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "projectionAngle",
+                    "setProperty": true,
+                    "FloatParameter": 180
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "enableCollision",
+                    "setProperty": true,
+                    "BoolParameter": true
+                  }
+                }
+              },
+              {
+                "SetBoolValue": {
+                  "boolVariable": "{trailerAttached}",
+                  "boolValue": true
+                }
+              },
+              {
+                "NextFrameEvent": {
+                  "sendEvent": "next"
+                }
+              }
+            ],
+            "transitions": {
+              "next": "trailerOn"
+            }
+          },
+          "trailerOn": {
+            "actions": [
+              {
+                "GetSpeed": {
+                  "gameObject": "owner",
+                  "storeResult": "{speed}",
+                  "everyFrame": true
+                }
+              },
+              {
+                "FloatCompare": {
+                  "float1": "{speed}",
+                  "float2": 3,
+                  "tolerance": 0,
+                  "greaterThan": "next2",
+                  "everyFrame": true
+                }
+              }
+            ],
+            "transitions": {
+              "next2": "moving",
+              "hitchUse": "detach"
+            }
+          },
+          "detach": {
+            "actions": [
+              {
+                "SetBoolValue": {
+                  "boolVariable": "{trailerAttached}",
+                  "boolValue": false
+                }
+              }
+            ],
+            "transitions": {
+              "FINISHED": "unjoint"
+            }
+          },
+          "moving": {
+            "actions": [
+              {
+                "GetSpeed": {
+                  "gameObject": "owner",
+                  "storeResult": "{speed}",
+                  "everyFrame": true
+                }
+              },
+              {
+                "FloatCompare": {
+                  "float1": "{speed}",
+                  "float2": 3,
+                  "tolerance": 0,
+                  "lessThan": "back",
+                  "everyFrame": true
+                }
+              }
+            ],
+            "transitions": {
+              "back": "trailerOn"
+            }
+          },
+          "clear": {
+            "actions": [
+              {
+                "HasComponent": {
+                  "gameObject": "{Trailer}",
+                  "component": "UnityEngine.ConfigurableJoint",
+                  "trueEvent": "remove",
+                  "falseEvent": "done"
+                }
+              }
+            ],
+            "transitions": {
+              "remove": "clearRemove",
+              "done": "attach"
+            }
+          },
+          "clearRemove": {
+            "actions": [
+              {
+                "DestroyComponent": {
+                  "gameObject": "{Trailer}",
+                  "component": "UnityEngine.ConfigurableJoint"
+                }
+              },
+              {
+                "NextFrameEvent": {
+                  "sendEvent": "next"
+                }
+              }
+            ],
+            "transitions": {
+              "next": "clear"
+            }
+          },
+          "unjoint": {
+            "actions": [
+              {
+                "HasComponent": {
+                  "gameObject": "{Trailer}",
+                  "component": "UnityEngine.ConfigurableJoint",
+                  "trueEvent": "remove",
+                  "falseEvent": "done"
+                }
+              }
+            ],
+            "transitions": {
+              "remove": "unjointRemove",
+              "done": "trailerOff"
+            }
+          },
+          "unjointRemove": {
+            "actions": [
+              {
+                "DestroyComponent": {
+                  "gameObject": "{Trailer}",
+                  "component": "UnityEngine.ConfigurableJoint"
+                }
+              },
+              {
+                "NextFrameEvent": {
+                  "sendEvent": "next"
+                }
+              }
+            ],
+            "transitions": {
+              "next": "unjoint"
+            }
+          }
+        }
+      },
+      "TrailerLoad": {
+        "variables": {
+          "float": {},
+          "bool": {
+            "trailerInRange_bool": false
+          },
+          "vector3": {
+            "attacher_pos": [
+              0,
+              0,
+              0
+            ],
+            "hitch_pos": [
+              0,
+              0,
+              0
+            ]
+          },
+          "gameObject": {
+            "attacher": null,
+            "Trailer": null
+          },
+          "object": {
+            "ConfigurableJoint": {
+              "type": "UnityEngine.ConfigurableJoint",
+              "value": null
+            },
+            "Rigidbody": {
+              "type": "UnityEngine.Rigidbody",
+              "value": null
+            }
+          }
+        },
+        "start": "loadAttach",
+        "states": {
+          "loadAttach": {
+            "actions": [
+              {
+                "SphereCast2": {
+                  "fromGameObject": "hitch_raycast",
+                  "radius": 0.2,
+                  "direction": [
+                    0,
+                    0,
+                    -1
+                  ],
+                  "space": "Self",
+                  "maxDistance": 0.2,
+                  "storeDidHit": "{trailerInRange_bool}",
+                  "storeHitObject": "{Trailer}",
+                  "repeatInterval": 1,
+                  "layerMask": [
+                    20
+                  ]
+                }
+              },
+              {
+                "BoolTest": {
+                  "boolVariable": "{trailerInRange_bool}",
+                  "isTrue": "next",
+                  "everyFrame": true
+                }
+              },
+              {
+                "Wait": {
+                  "time": 0.5,
+                  "finishEvent": "back"
+                }
+              }
+            ],
+            "transitions": {
+              "next": "clear",
+              "back": "trailerOff"
+            }
+          },
+          "attach": {
+            "actions": [
+              {
+                "GetChild": {
+                  "gameObject": "{Trailer}",
+                  "childName": "attacher",
+                  "storeResult": "{attacher}"
+                }
+              },
+              {
+                "GetPosition": {
+                  "gameObject": "hitch",
+                  "vector": "{hitch_pos}",
+                  "space": "Self"
+                }
+              },
+              {
+                "GetPosition": {
+                  "gameObject": "{attacher}",
+                  "vector": "{attacher_pos}",
+                  "space": "Self"
+                }
+              },
+              {
+                "AddComponent": {
+                  "gameObject": "{Trailer}",
+                  "component": "UnityEngine.ConfigurableJoint",
+                  "storeComponent": "{ConfigurableJoint}"
+                }
+              },
+              {
+                "GetComponent": {
+                  "gameObject": "owner",
+                  "storeComponent": "{Rigidbody}"
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "connectedBody",
+                    "setProperty": true,
+                    "ObjectParameter": "{Rigidbody}"
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "anchor",
+                    "setProperty": true,
+                    "Vector3Parameter": "{attacher_pos}"
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "autoConfigureConnectedAnchor",
+                    "setProperty": true,
+                    "BoolParameter": false
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "connectedAnchor",
+                    "setProperty": true,
+                    "Vector3Parameter": "{hitch_pos}"
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "xMotion",
+                    "setProperty": true,
+                    "EnumParameter": {
+                      "type": "UnityEngine.ConfigurableJointMotion",
+                      "value": "Locked"
+                    }
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "yMotion",
+                    "setProperty": true,
+                    "EnumParameter": {
+                      "type": "UnityEngine.ConfigurableJointMotion",
+                      "value": "Locked"
+                    }
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "zMotion",
+                    "setProperty": true,
+                    "EnumParameter": {
+                      "type": "UnityEngine.ConfigurableJointMotion",
+                      "value": "Locked"
+                    }
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "angularXMotion",
+                    "setProperty": true,
+                    "EnumParameter": {
+                      "type": "UnityEngine.ConfigurableJointMotion",
+                      "value": "Free"
+                    }
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "angularYMotion",
+                    "setProperty": true,
+                    "EnumParameter": {
+                      "type": "UnityEngine.ConfigurableJointMotion",
+                      "value": "Free"
+                    }
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "angularZMotion",
+                    "setProperty": true,
+                    "EnumParameter": {
+                      "type": "UnityEngine.ConfigurableJointMotion",
+                      "value": "Free"
+                    }
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "projectionDistance",
+                    "setProperty": true,
+                    "FloatParameter": 0.1
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "projectionAngle",
+                    "setProperty": true,
+                    "FloatParameter": 180
+                  }
+                }
+              },
+              {
+                "SetProperty": {
+                  "targetProperty": {
+                    "TargetObject": "{ConfigurableJoint}",
+                    "TargetTypeName": "UnityEngine.ConfigurableJoint",
+                    "PropertyName": "enableCollision",
+                    "setProperty": true,
+                    "BoolParameter": true
+                  }
+                }
+              },
+              {
+                "NextFrameEvent": {
+                  "sendEvent": "next"
+                }
+              }
+            ],
+            "transitions": {
+              "next": "trailerOn"
+            }
+          },
+          "trailerOn": {
+            "actions": [
+              {
+                "SetFsmGameObject": {
+                  "gameObject": "owner",
+                  "fsmName": "TrailerAttach",
+                  "variableName": "Trailer",
+                  "setValue": "{Trailer}"
+                }
+              },
+              {
+                "SetFsmBool": {
+                  "gameObject": "owner",
+                  "fsmName": "TrailerAttach",
+                  "variableName": "trailerAttached",
+                  "setValue": true
+                }
+              }
+            ]
+          },
+          "trailerOff": {},
+          "clear": {
+            "actions": [
+              {
+                "HasComponent": {
+                  "gameObject": "{Trailer}",
+                  "component": "UnityEngine.ConfigurableJoint",
+                  "trueEvent": "remove",
+                  "falseEvent": "done"
+                }
+              }
+            ],
+            "transitions": {
+              "remove": "clearRemove",
+              "done": "attach"
+            }
+          },
+          "clearRemove": {
+            "actions": [
+              {
+                "DestroyComponent": {
+                  "gameObject": "{Trailer}",
+                  "component": "UnityEngine.ConfigurableJoint"
+                }
+              },
+              {
+                "NextFrameEvent": {
+                  "sendEvent": "next"
+                }
+              }
+            ],
+            "transitions": {
+              "next": "clear"
+            }
+          }
         }
       }
     },
@@ -1812,7 +2820,11 @@
         "parent": "RSound",
         "add": [
           "RealisticEngineSound"
-        ]
+        ],
+        "RealisticEngineSound": {
+          "enableReverseGear": false,
+          "dynamicAudioMixer": "Off"
+        }
       },
       "Fuel Hose End": {
         "parent": "root",
@@ -2108,17 +3120,28 @@
       "Flywheel Axle": {
         "parent": "root",
         "add": [
-          "NWH.WheelController3D.WheelController"
+          "NWH.WheelController3D.WheelController",
+          "EngineSim.Windage",
+          "EngineSim.RimFriction"
         ],
         "WheelController": {
           "wheel.visual": "Flywheel Spin",
-          "wheel.radius": 1.0,
-          "wheel.width": 0.2278,
-          "wheel.mass": 5617,
-          "spring.maxLength": 0.05,
-          "layerMask": []
+          "wheel.radius": 0.5586,
+          "wheel.width": 0.126,
+          "wheel.mass": 970,
+          "spring.maxLength": 0,
+          "layerMask": [
+            0,
+            14
+          ],
+          "meshColliderLayer": 2
         },
-        "at": "Wheel (Heavy Flywheel)"
+        "at": "Wheel (Heavy Flywheel)",
+        "position": [
+          0.0295,
+          0,
+          0
+        ]
       },
       "Flywheel Spin": {
         "parent": "Flywheel Axle"
@@ -2130,16 +3153,27 @@
         "parent": "root",
         "at": "Wheel (Heavy Flywheel).001",
         "add": [
-          "NWH.WheelController3D.WheelController"
+          "NWH.WheelController3D.WheelController",
+          "EngineSim.Windage",
+          "EngineSim.RimFriction"
         ],
         "WheelController": {
           "wheel.visual": "Flywheel Spin 2",
-          "wheel.radius": 1.0,
-          "wheel.width": 0.2278,
-          "wheel.mass": 5617,
-          "spring.maxLength": 0.05,
-          "layerMask": []
-        }
+          "wheel.radius": 0.56,
+          "wheel.width": 0.126,
+          "wheel.mass": 975,
+          "spring.maxLength": 0,
+          "layerMask": [
+            0,
+            14
+          ],
+          "meshColliderLayer": 2
+        },
+        "position": [
+          -0.059,
+          0,
+          0
+        ]
       },
       "Flywheel Spin 2": {
         "parent": "Flywheel Axle 2"
@@ -3266,6 +4300,2286 @@
             }
           }
         }
+      },
+      "Wheel RL": {
+        "parent": "root",
+        "at": "Rear Left Wheel Mount",
+        "layer": 2,
+        "collider": {
+          "shape": "box",
+          "trigger": true,
+          "from": "Rear Left Wheel Mount"
+        },
+        "add": [
+          "NWH.WheelController3D.WheelController"
+        ],
+        "NWH.WheelController3D.WheelController": {
+          "wheel.radius": 0.1,
+          "wheel.width": 0.2,
+          "wheel.mass": 10,
+          "forwardFriction.grip": 0.1,
+          "spring.maxLength": 0.2,
+          "spring.maxForce": 12000,
+          "damper.bumpRate": 6000,
+          "damper.reboundRate": 6000,
+          "layerMask": [
+            0,
+            14
+          ],
+          "meshColliderLayer": 2,
+          "wheel.visual": "RL Hub"
+        },
+        "playmaker": {
+          "vehPart_Attach": {
+            "use": "wheel_attach",
+            "variables": {
+              "string": {
+                "AcceptID": "wheel"
+              }
+            }
+          },
+          "getParent": {
+            "variables": {
+              "gameObject": {
+                "vehicle": "root"
+              }
+            },
+            "states": {
+              "idle": {}
+            }
+          },
+          "wheelVisual": {
+            "variables": {
+              "gameObject": {
+                "wheel": null
+              },
+              "object": {
+                "WheelController": {
+                  "type": "NWH.WheelController3D.WheelController",
+                  "value": null
+                },
+                "meshWheel": {
+                  "type": "UnityEngine.MeshFilter",
+                  "value": null
+                },
+                "wheel_mesh": {
+                  "type": "UnityEngine.Mesh",
+                  "value": null
+                }
+              },
+              "material": {
+                "wheelMaterial": null
+              }
+            },
+            "start": "check",
+            "states": {
+              "check": {
+                "actions": [
+                  {
+                    "GetChild": {
+                      "gameObject": "owner",
+                      "childName": "",
+                      "withTag": "vehPart",
+                      "storeResult": "{wheel}"
+                    }
+                  },
+                  {
+                    "GameObjectIsNull": {
+                      "gameObject": "{wheel}",
+                      "isNull": "none",
+                      "isNotNull": "fitted"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "none": "bare",
+                  "fitted": "fitted"
+                }
+              },
+              "bare": {
+                "actions": [
+                  {
+                    "SetMesh": {
+                      "gameObject": "RL Rim",
+                      "meshObject": "asset:Mesh/wheel_hub"
+                    }
+                  },
+                  {
+                    "SetMaterial": {
+                      "gameObject": "RL Rim",
+                      "materialIndex": 0,
+                      "material": "asset:Material/rusted_black_metal"
+                    }
+                  },
+                  {
+                    "GetComponent": {
+                      "gameObject": "owner",
+                      "storeComponent": "{WheelController}"
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{WheelController}",
+                        "TargetTypeName": "NWH.WheelController3D.WheelController",
+                        "PropertyName": "Radius",
+                        "setProperty": true,
+                        "FloatParameter": 0.1
+                      }
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{WheelController}",
+                        "TargetTypeName": "NWH.WheelController3D.WheelController",
+                        "PropertyName": "Mass",
+                        "setProperty": true,
+                        "FloatParameter": 10
+                      }
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{WheelController}",
+                        "TargetTypeName": "NWH.WheelController3D.WheelController",
+                        "PropertyName": "forwardFriction.grip",
+                        "setProperty": true,
+                        "FloatParameter": 0.1
+                      }
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "bareWait"
+                }
+              },
+              "bareWait": {
+                "actions": [
+                  {
+                    "Wait": {
+                      "time": 0.25
+                    }
+                  },
+                  {
+                    "GetChild": {
+                      "gameObject": "owner",
+                      "childName": "",
+                      "withTag": "vehPart",
+                      "storeResult": "{wheel}"
+                    }
+                  },
+                  {
+                    "GameObjectIsNull": {
+                      "gameObject": "{wheel}",
+                      "isNotNull": "fitted"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "bareWait",
+                  "fitted": "fitted"
+                }
+              },
+              "fitted": {
+                "actions": [
+                  {
+                    "GetComponent": {
+                      "gameObject": "{wheel}",
+                      "storeComponent": "{meshWheel}"
+                    }
+                  },
+                  {
+                    "GetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{meshWheel}",
+                        "TargetTypeName": "UnityEngine.MeshFilter",
+                        "PropertyName": "sharedMesh",
+                        "ObjectParameter": "{wheel_mesh}"
+                      }
+                    }
+                  },
+                  {
+                    "GetMaterial": {
+                      "gameObject": "{wheel}",
+                      "materialIndex": 0,
+                      "material": "{wheelMaterial}",
+                      "getSharedMaterial": true
+                    }
+                  },
+                  {
+                    "SetMesh": {
+                      "gameObject": "RL Rim",
+                      "meshObject": "{wheel_mesh}"
+                    }
+                  },
+                  {
+                    "SetMaterial": {
+                      "gameObject": "RL Rim",
+                      "materialIndex": 0,
+                      "material": "{wheelMaterial}"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "fittedWait"
+                }
+              },
+              "fittedWait": {
+                "actions": [
+                  {
+                    "Wait": {
+                      "time": 0.25
+                    }
+                  },
+                  {
+                    "GetChild": {
+                      "gameObject": "owner",
+                      "childName": "",
+                      "withTag": "vehPart",
+                      "storeResult": "{wheel}"
+                    }
+                  },
+                  {
+                    "GameObjectIsNull": {
+                      "gameObject": "{wheel}",
+                      "isNull": "none"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "fittedWait",
+                  "none": "bare"
+                }
+              }
+            }
+          }
+        }
+      },
+      "RL Hub": {
+        "parent": "Wheel RL"
+      },
+      "RL Rim": {
+        "parent": "RL Hub",
+        "add": [
+          "MeshFilter",
+          "MeshRenderer"
+        ]
+      },
+      "Wheel RR": {
+        "parent": "root",
+        "at": "Rear Right Wheel Mount",
+        "layer": 2,
+        "collider": {
+          "shape": "box",
+          "trigger": true,
+          "from": "Rear Right Wheel Mount"
+        },
+        "add": [
+          "NWH.WheelController3D.WheelController"
+        ],
+        "NWH.WheelController3D.WheelController": {
+          "wheel.radius": 0.1,
+          "wheel.width": 0.2,
+          "wheel.mass": 10,
+          "forwardFriction.grip": 0.1,
+          "spring.maxLength": 0.2,
+          "spring.maxForce": 12000,
+          "damper.bumpRate": 6000,
+          "damper.reboundRate": 6000,
+          "layerMask": [
+            0,
+            14
+          ],
+          "meshColliderLayer": 2,
+          "wheel.visual": "RR Hub"
+        },
+        "playmaker": {
+          "vehPart_Attach": {
+            "use": "wheel_attach",
+            "variables": {
+              "string": {
+                "AcceptID": "wheel"
+              }
+            }
+          },
+          "getParent": {
+            "variables": {
+              "gameObject": {
+                "vehicle": "root"
+              }
+            },
+            "states": {
+              "idle": {}
+            }
+          },
+          "wheelVisual": {
+            "variables": {
+              "gameObject": {
+                "wheel": null
+              },
+              "object": {
+                "WheelController": {
+                  "type": "NWH.WheelController3D.WheelController",
+                  "value": null
+                },
+                "meshWheel": {
+                  "type": "UnityEngine.MeshFilter",
+                  "value": null
+                },
+                "wheel_mesh": {
+                  "type": "UnityEngine.Mesh",
+                  "value": null
+                }
+              },
+              "material": {
+                "wheelMaterial": null
+              }
+            },
+            "start": "check",
+            "states": {
+              "check": {
+                "actions": [
+                  {
+                    "GetChild": {
+                      "gameObject": "owner",
+                      "childName": "",
+                      "withTag": "vehPart",
+                      "storeResult": "{wheel}"
+                    }
+                  },
+                  {
+                    "GameObjectIsNull": {
+                      "gameObject": "{wheel}",
+                      "isNull": "none",
+                      "isNotNull": "fitted"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "none": "bare",
+                  "fitted": "fitted"
+                }
+              },
+              "bare": {
+                "actions": [
+                  {
+                    "SetMesh": {
+                      "gameObject": "RR Rim",
+                      "meshObject": "asset:Mesh/wheel_hub"
+                    }
+                  },
+                  {
+                    "SetMaterial": {
+                      "gameObject": "RR Rim",
+                      "materialIndex": 0,
+                      "material": "asset:Material/rusted_black_metal"
+                    }
+                  },
+                  {
+                    "GetComponent": {
+                      "gameObject": "owner",
+                      "storeComponent": "{WheelController}"
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{WheelController}",
+                        "TargetTypeName": "NWH.WheelController3D.WheelController",
+                        "PropertyName": "Radius",
+                        "setProperty": true,
+                        "FloatParameter": 0.1
+                      }
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{WheelController}",
+                        "TargetTypeName": "NWH.WheelController3D.WheelController",
+                        "PropertyName": "Mass",
+                        "setProperty": true,
+                        "FloatParameter": 10
+                      }
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{WheelController}",
+                        "TargetTypeName": "NWH.WheelController3D.WheelController",
+                        "PropertyName": "forwardFriction.grip",
+                        "setProperty": true,
+                        "FloatParameter": 0.1
+                      }
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "bareWait"
+                }
+              },
+              "bareWait": {
+                "actions": [
+                  {
+                    "Wait": {
+                      "time": 0.25
+                    }
+                  },
+                  {
+                    "GetChild": {
+                      "gameObject": "owner",
+                      "childName": "",
+                      "withTag": "vehPart",
+                      "storeResult": "{wheel}"
+                    }
+                  },
+                  {
+                    "GameObjectIsNull": {
+                      "gameObject": "{wheel}",
+                      "isNotNull": "fitted"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "bareWait",
+                  "fitted": "fitted"
+                }
+              },
+              "fitted": {
+                "actions": [
+                  {
+                    "GetComponent": {
+                      "gameObject": "{wheel}",
+                      "storeComponent": "{meshWheel}"
+                    }
+                  },
+                  {
+                    "GetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{meshWheel}",
+                        "TargetTypeName": "UnityEngine.MeshFilter",
+                        "PropertyName": "sharedMesh",
+                        "ObjectParameter": "{wheel_mesh}"
+                      }
+                    }
+                  },
+                  {
+                    "GetMaterial": {
+                      "gameObject": "{wheel}",
+                      "materialIndex": 0,
+                      "material": "{wheelMaterial}",
+                      "getSharedMaterial": true
+                    }
+                  },
+                  {
+                    "SetMesh": {
+                      "gameObject": "RR Rim",
+                      "meshObject": "{wheel_mesh}"
+                    }
+                  },
+                  {
+                    "SetMaterial": {
+                      "gameObject": "RR Rim",
+                      "materialIndex": 0,
+                      "material": "{wheelMaterial}"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "fittedWait"
+                }
+              },
+              "fittedWait": {
+                "actions": [
+                  {
+                    "Wait": {
+                      "time": 0.25
+                    }
+                  },
+                  {
+                    "GetChild": {
+                      "gameObject": "owner",
+                      "childName": "",
+                      "withTag": "vehPart",
+                      "storeResult": "{wheel}"
+                    }
+                  },
+                  {
+                    "GameObjectIsNull": {
+                      "gameObject": "{wheel}",
+                      "isNull": "none"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "fittedWait",
+                  "none": "bare"
+                }
+              }
+            }
+          }
+        }
+      },
+      "RR Hub": {
+        "parent": "Wheel RR"
+      },
+      "RR Rim": {
+        "parent": "RR Hub",
+        "add": [
+          "MeshFilter",
+          "MeshRenderer"
+        ],
+        "rotation": [
+          0,
+          180,
+          0
+        ]
+      },
+      "Wheel Front": {
+        "parent": "root",
+        "at": "Steering Hinge",
+        "layer": 2,
+        "collider": {
+          "shape": "box",
+          "trigger": true,
+          "from": "Steering Hinge"
+        },
+        "add": [
+          "NWH.WheelController3D.WheelController"
+        ],
+        "NWH.WheelController3D.WheelController": {
+          "wheel.radius": 0.1,
+          "wheel.width": 0.2,
+          "wheel.mass": 10,
+          "forwardFriction.grip": 0.1,
+          "spring.maxLength": 0.2,
+          "spring.maxForce": 16000,
+          "damper.bumpRate": 7000,
+          "damper.reboundRate": 7000,
+          "layerMask": [
+            0,
+            14
+          ],
+          "meshColliderLayer": 2,
+          "wheel.visual": "Front Hub"
+        },
+        "playmaker": {
+          "vehPart_Attach": {
+            "use": "wheel_attach",
+            "variables": {
+              "string": {
+                "AcceptID": "wheel"
+              }
+            }
+          },
+          "getParent": {
+            "variables": {
+              "gameObject": {
+                "vehicle": "root"
+              }
+            },
+            "states": {
+              "idle": {}
+            }
+          },
+          "wheelVisual": {
+            "variables": {
+              "gameObject": {
+                "wheel": null
+              },
+              "object": {
+                "WheelController": {
+                  "type": "NWH.WheelController3D.WheelController",
+                  "value": null
+                },
+                "meshWheel": {
+                  "type": "UnityEngine.MeshFilter",
+                  "value": null
+                },
+                "wheel_mesh": {
+                  "type": "UnityEngine.Mesh",
+                  "value": null
+                }
+              },
+              "material": {
+                "wheelMaterial": null
+              }
+            },
+            "start": "check",
+            "states": {
+              "check": {
+                "actions": [
+                  {
+                    "GetChild": {
+                      "gameObject": "owner",
+                      "childName": "",
+                      "withTag": "vehPart",
+                      "storeResult": "{wheel}"
+                    }
+                  },
+                  {
+                    "GameObjectIsNull": {
+                      "gameObject": "{wheel}",
+                      "isNull": "none",
+                      "isNotNull": "fitted"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "none": "bare",
+                  "fitted": "fitted"
+                }
+              },
+              "bare": {
+                "actions": [
+                  {
+                    "SetMesh": {
+                      "gameObject": "Front Rim",
+                      "meshObject": "asset:Mesh/wheel_hub"
+                    }
+                  },
+                  {
+                    "SetMaterial": {
+                      "gameObject": "Front Rim",
+                      "materialIndex": 0,
+                      "material": "asset:Material/rusted_black_metal"
+                    }
+                  },
+                  {
+                    "GetComponent": {
+                      "gameObject": "owner",
+                      "storeComponent": "{WheelController}"
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{WheelController}",
+                        "TargetTypeName": "NWH.WheelController3D.WheelController",
+                        "PropertyName": "Radius",
+                        "setProperty": true,
+                        "FloatParameter": 0.1
+                      }
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{WheelController}",
+                        "TargetTypeName": "NWH.WheelController3D.WheelController",
+                        "PropertyName": "Mass",
+                        "setProperty": true,
+                        "FloatParameter": 10
+                      }
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{WheelController}",
+                        "TargetTypeName": "NWH.WheelController3D.WheelController",
+                        "PropertyName": "forwardFriction.grip",
+                        "setProperty": true,
+                        "FloatParameter": 0.1
+                      }
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "bareWait"
+                }
+              },
+              "bareWait": {
+                "actions": [
+                  {
+                    "Wait": {
+                      "time": 0.25
+                    }
+                  },
+                  {
+                    "GetChild": {
+                      "gameObject": "owner",
+                      "childName": "",
+                      "withTag": "vehPart",
+                      "storeResult": "{wheel}"
+                    }
+                  },
+                  {
+                    "GameObjectIsNull": {
+                      "gameObject": "{wheel}",
+                      "isNotNull": "fitted"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "bareWait",
+                  "fitted": "fitted"
+                }
+              },
+              "fitted": {
+                "actions": [
+                  {
+                    "GetComponent": {
+                      "gameObject": "{wheel}",
+                      "storeComponent": "{meshWheel}"
+                    }
+                  },
+                  {
+                    "GetProperty": {
+                      "targetProperty": {
+                        "TargetObject": "{meshWheel}",
+                        "TargetTypeName": "UnityEngine.MeshFilter",
+                        "PropertyName": "sharedMesh",
+                        "ObjectParameter": "{wheel_mesh}"
+                      }
+                    }
+                  },
+                  {
+                    "GetMaterial": {
+                      "gameObject": "{wheel}",
+                      "materialIndex": 0,
+                      "material": "{wheelMaterial}",
+                      "getSharedMaterial": true
+                    }
+                  },
+                  {
+                    "SetMesh": {
+                      "gameObject": "Front Rim",
+                      "meshObject": "{wheel_mesh}"
+                    }
+                  },
+                  {
+                    "SetMaterial": {
+                      "gameObject": "Front Rim",
+                      "materialIndex": 0,
+                      "material": "{wheelMaterial}"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "fittedWait"
+                }
+              },
+              "fittedWait": {
+                "actions": [
+                  {
+                    "Wait": {
+                      "time": 0.25
+                    }
+                  },
+                  {
+                    "GetChild": {
+                      "gameObject": "owner",
+                      "childName": "",
+                      "withTag": "vehPart",
+                      "storeResult": "{wheel}"
+                    }
+                  },
+                  {
+                    "GameObjectIsNull": {
+                      "gameObject": "{wheel}",
+                      "isNull": "none"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "fittedWait",
+                  "none": "bare"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Front Hub": {
+        "parent": "Wheel Front"
+      },
+      "Front Rim": {
+        "parent": "Front Hub",
+        "add": [
+          "MeshFilter",
+          "MeshRenderer"
+        ]
+      },
+      "Wheel (Heavy Flywheel).002": {
+        "parent": "RL Hub"
+      },
+      "Belt Drive": {
+        "parent": "root",
+        "add": [
+          "EngineSim.WheelCoupling",
+          "EngineSim.Belt"
+        ],
+        "EngineSim.WheelCoupling": {
+          "a": "Flywheel Axle:NWH.WheelController3D.WheelController",
+          "b": "Wheel RL:NWH.WheelController3D.WheelController",
+          "ratio": 2.639,
+          "capacity": 3000,
+          "engagement": 0
+        },
+        "EngineSim.Belt": {
+          "a": "Flywheel Axle",
+          "b": "Wheel (Heavy Flywheel).002",
+          "radiusA": 0.5586,
+          "radiusB": 0.2117,
+          "width": 0.063,
+          "thickness": 0.008,
+          "sag": 0.25,
+          "coupling": "Belt Drive:EngineSim.WheelCoupling",
+          "pitch": 0.02
+        }
+      },
+      "Rear Axle": {
+        "parent": "root",
+        "add": [
+          "EngineSim.WheelCoupling"
+        ],
+        "EngineSim.WheelCoupling": {
+          "a": "Wheel RL:NWH.WheelController3D.WheelController",
+          "b": "Wheel RR:NWH.WheelController3D.WheelController",
+          "ratio": 1,
+          "capacity": 0,
+          "engagement": 1
+        }
+      },
+      "Belt Clutch Pivot": {
+        "parent": "Belt Clutch Mount",
+        "at": "Belt Clutch"
+      },
+      "Belt Clutch": {
+        "parent": "Belt Clutch Pivot"
+      },
+      "Belt Clutch Collider": {
+        "parent": "Belt Clutch Pivot",
+        "layer": 0,
+        "collider": {
+          "shape": "box",
+          "trigger": true
+        },
+        "playmaker": {
+          "Belt Clutch": {
+            "variables": {
+              "float": {
+                "position": 0
+              },
+              "string": {
+                "text": ""
+              }
+            },
+            "globalEvents": [
+              "OverItem",
+              "OffItem"
+            ],
+            "global": {
+              "OverItem": "over",
+              "OffItem": "off"
+            },
+            "start": "off",
+            "states": {
+              "off": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_3}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": ""
+                    }
+                  }
+                ]
+              },
+              "over": {
+                "actions": [
+                  {
+                    "ConvertFloatToString": {
+                      "floatVariable": "{position}",
+                      "stringVariable": "{text}",
+                      "format": "0%"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": "Belt Clutch"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": "{text}"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": "Tighten: Left mouse button / Slacken: Right mouse button"
+                    }
+                  },
+                  {
+                    "GetMouseButtonDown": {
+                      "button": "Left",
+                      "sendEvent": "up",
+                      "inUpdateOnly": true
+                    }
+                  },
+                  {
+                    "GetMouseButtonDown": {
+                      "button": "Right",
+                      "sendEvent": "down",
+                      "inUpdateOnly": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "up": "up",
+                  "down": "down"
+                }
+              },
+              "up": {
+                "actions": [
+                  {
+                    "FloatAdd": {
+                      "floatVariable": "{position}",
+                      "add": 0.1
+                    }
+                  },
+                  {
+                    "FloatClamp": {
+                      "floatVariable": "{position}",
+                      "minValue": 0,
+                      "maxValue": 1
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              },
+              "down": {
+                "actions": [
+                  {
+                    "FloatAdd": {
+                      "floatVariable": "{position}",
+                      "add": -0.1
+                    }
+                  },
+                  {
+                    "FloatClamp": {
+                      "floatVariable": "{position}",
+                      "minValue": 0,
+                      "maxValue": 1
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              }
+            }
+          },
+          "Belt ClutchLever": {
+            "variables": {
+              "float": {
+                "position": 0,
+                "angle": 0
+              },
+              "object": {
+                "Coupling": "Belt Drive:EngineSim.WheelCoupling"
+              }
+            },
+            "states": {
+              "apply": {
+                "actions": [
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "owner",
+                      "fsmName": "Belt Clutch",
+                      "variableName": "position",
+                      "storeValue": "{position}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "everyFrame": true,
+                      "targetProperty": {
+                        "TargetObject": "{Coupling}",
+                        "TargetTypeName": "EngineSim.WheelCoupling",
+                        "PropertyName": "engagement",
+                        "setProperty": true,
+                        "FloatParameter": "{position}"
+                      }
+                    }
+                  },
+                  {
+                    "SetFloatValue": {
+                      "floatVariable": "{angle}",
+                      "floatValue": "{position}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "FloatMultiply": {
+                      "floatVariable": "{angle}",
+                      "multiplyBy": -40,
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetRotation": {
+                      "gameObject": "Belt Clutch Pivot",
+                      "xAngle": "{angle}",
+                      "space": "Self",
+                      "everyFrame": true
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "Steering Pivot": {
+        "parent": "Steering Mount",
+        "at": "Lever.001"
+      },
+      "Lever.001": {
+        "parent": "Steering Pivot"
+      },
+      "Steering Collider": {
+        "parent": "Steering Pivot",
+        "layer": 0,
+        "collider": {
+          "shape": "box",
+          "trigger": true
+        },
+        "playmaker": {
+          "Steering": {
+            "variables": {
+              "float": {
+                "position": 0
+              },
+              "string": {
+                "text": ""
+              }
+            },
+            "globalEvents": [
+              "OverItem",
+              "OffItem"
+            ],
+            "global": {
+              "OverItem": "over",
+              "OffItem": "off"
+            },
+            "start": "off",
+            "states": {
+              "off": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_3}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": ""
+                    }
+                  }
+                ]
+              },
+              "over": {
+                "actions": [
+                  {
+                    "ConvertFloatToString": {
+                      "floatVariable": "{position}",
+                      "stringVariable": "{text}",
+                      "format": "0%"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": "Steering"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": "{text}"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": "Left: Left mouse button / Right: Right mouse button"
+                    }
+                  },
+                  {
+                    "GetMouseButtonDown": {
+                      "button": "Left",
+                      "sendEvent": "up",
+                      "inUpdateOnly": true
+                    }
+                  },
+                  {
+                    "GetMouseButtonDown": {
+                      "button": "Right",
+                      "sendEvent": "down",
+                      "inUpdateOnly": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "up": "up",
+                  "down": "down"
+                }
+              },
+              "up": {
+                "actions": [
+                  {
+                    "FloatAdd": {
+                      "floatVariable": "{position}",
+                      "add": -0.1
+                    }
+                  },
+                  {
+                    "FloatClamp": {
+                      "floatVariable": "{position}",
+                      "minValue": -1,
+                      "maxValue": 1
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              },
+              "down": {
+                "actions": [
+                  {
+                    "FloatAdd": {
+                      "floatVariable": "{position}",
+                      "add": 0.1
+                    }
+                  },
+                  {
+                    "FloatClamp": {
+                      "floatVariable": "{position}",
+                      "minValue": -1,
+                      "maxValue": 1
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              }
+            }
+          },
+          "SteeringLever": {
+            "variables": {
+              "float": {
+                "position": 0,
+                "angle": 0
+              },
+              "object": {
+                "VehicleController": "root:VehicleController"
+              }
+            },
+            "states": {
+              "apply": {
+                "actions": [
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "owner",
+                      "fsmName": "Steering",
+                      "variableName": "position",
+                      "storeValue": "{position}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "everyFrame": true,
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "input.Steering",
+                        "setProperty": true,
+                        "FloatParameter": "{position}"
+                      }
+                    }
+                  },
+                  {
+                    "SetFloatValue": {
+                      "floatVariable": "{angle}",
+                      "floatValue": "{position}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "FloatMultiply": {
+                      "floatVariable": "{angle}",
+                      "multiplyBy": -40,
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetRotation": {
+                      "gameObject": "Steering Pivot",
+                      "xAngle": "{angle}",
+                      "space": "Self",
+                      "everyFrame": true
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "Handbrake": {
+        "layer": 0,
+        "collider": {
+          "shape": "box",
+          "trigger": true
+        },
+        "playmaker": {
+          "Handbrake": {
+            "variables": {
+              "float": {
+                "position": 0
+              },
+              "string": {
+                "text": ""
+              }
+            },
+            "globalEvents": [
+              "OverItem",
+              "OffItem"
+            ],
+            "global": {
+              "OverItem": "over",
+              "OffItem": "off"
+            },
+            "start": "off",
+            "states": {
+              "off": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_3}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": ""
+                    }
+                  }
+                ]
+              },
+              "over": {
+                "actions": [
+                  {
+                    "ConvertFloatToString": {
+                      "floatVariable": "{position}",
+                      "stringVariable": "{text}",
+                      "format": "On;;Off"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": "Handbrake"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": "{text}"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": "Pull / release: Left mouse button"
+                    }
+                  },
+                  {
+                    "GetMouseButtonDown": {
+                      "button": "Left",
+                      "sendEvent": "up",
+                      "inUpdateOnly": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "up": "toggle"
+                }
+              },
+              "toggle": {
+                "actions": [
+                  {
+                    "FloatCompare": {
+                      "float1": "{position}",
+                      "float2": 0.5,
+                      "tolerance": 0,
+                      "lessThan": "engage",
+                      "equal": "release",
+                      "greaterThan": "release"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "engage": "engage",
+                  "release": "release"
+                }
+              },
+              "engage": {
+                "actions": [
+                  {
+                    "PlaySound": {
+                      "gameObject": "owner",
+                      "clip": "asset:AudioClip/handbrake1",
+                      "volume": 1
+                    }
+                  },
+                  {
+                    "SetFloatValue": {
+                      "floatVariable": "{position}",
+                      "floatValue": 1
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              },
+              "release": {
+                "actions": [
+                  {
+                    "PlaySound": {
+                      "gameObject": "owner",
+                      "clip": "asset:AudioClip/handbrake_release1",
+                      "volume": 1
+                    }
+                  },
+                  {
+                    "SetFloatValue": {
+                      "floatVariable": "{position}",
+                      "floatValue": 0
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              }
+            }
+          },
+          "HandbrakeLever": {
+            "variables": {
+              "float": {
+                "position": 0,
+                "angle": 0
+              },
+              "object": {
+                "VehicleController": "root:VehicleController"
+              }
+            },
+            "states": {
+              "apply": {
+                "actions": [
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "owner",
+                      "fsmName": "Handbrake",
+                      "variableName": "position",
+                      "storeValue": "{position}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetProperty": {
+                      "everyFrame": true,
+                      "targetProperty": {
+                        "TargetObject": "{VehicleController}",
+                        "TargetTypeName": "NWH.VehiclePhysics2.VehicleController",
+                        "PropertyName": "input.Handbrake",
+                        "setProperty": true,
+                        "FloatParameter": "{position}"
+                      }
+                    }
+                  },
+                  {
+                    "SetFloatValue": {
+                      "floatVariable": "{angle}",
+                      "floatValue": "{position}",
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "FloatMultiply": {
+                      "floatVariable": "{angle}",
+                      "multiplyBy": -30,
+                      "everyFrame": true
+                    }
+                  },
+                  {
+                    "SetRotation": {
+                      "gameObject": "Handbrake Pivot",
+                      "xAngle": "{angle}",
+                      "space": "Self",
+                      "everyFrame": true
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "Handbrake Pivot": {
+        "parent": "root",
+        "at": "Handbrake",
+        "position": [
+          0,
+          0.107,
+          0
+        ]
+      },
+      "Handbrake Lever": {
+        "parent": "Handbrake Pivot",
+        "add": [
+          "MeshFilter",
+          "MeshRenderer"
+        ],
+        "MeshFilter": {
+          "sharedMesh": "asset:Mesh/handbrake.005"
+        },
+        "MeshRenderer": {
+          "sharedMaterial": "asset:Material/gear_lever_1"
+        }
+      },
+      "Body Collider": {
+        "collider": "convex"
+      },
+      "Body Collider.001": {
+        "collider": "convex"
+      },
+      "Body Collider.002": {
+        "collider": "convex"
+      },
+      "Body Collider.003": {
+        "collider": "convex"
+      },
+      "Body Collider.004": {
+        "collider": "convex"
+      },
+      "Body Collider.005": {
+        "collider": "convex"
+      },
+      "Body Collider.006": {
+        "collider": "convex"
+      },
+      "Body Collider.007": {
+        "collider": "convex"
+      },
+      "Body Collider.008": {
+        "collider": "convex"
+      },
+      "Body Collider.009": {
+        "collider": "convex"
+      },
+      "Body Collider.010": {
+        "collider": "convex"
+      },
+      "Body Collider.011": {
+        "collider": "convex"
+      },
+      "Body Collider.012": {
+        "collider": "convex"
+      },
+      "Body Collider.013": {
+        "collider": "convex"
+      },
+      "Body Collider.014": {
+        "collider": "convex"
+      },
+      "Body Collider.015": {
+        "collider": "convex"
+      },
+      "Body Collider.016": {
+        "collider": "convex"
+      },
+      "Body Collider.017": {
+        "collider": "convex"
+      },
+      "Physlock Volume": {
+        "layer": 18,
+        "collider": {
+          "shape": "convex",
+          "trigger": true
+        }
+      },
+      "Physlock Volume.001": {
+        "layer": 18,
+        "collider": {
+          "shape": "convex",
+          "trigger": true
+        }
+      },
+      "Physlock Volume.002": {
+        "layer": 18,
+        "collider": {
+          "shape": "convex",
+          "trigger": true
+        }
+      },
+      "Tow Hitch": {
+        "collider": {
+          "shape": "convex",
+          "render": true
+        }
+      },
+      "hitch": {
+        "parent": "root",
+        "at": "Tow Hitch"
+      },
+      "hitch_raycast": {
+        "parent": "root",
+        "at": "Tow Hitch",
+        "position": [
+          0,
+          0,
+          0.511
+        ]
+      },
+      "Cassette Player Install Hinge": {
+        "layer": 2,
+        "collider": {
+          "shape": "box",
+          "trigger": true
+        },
+        "playmaker": {
+          "vehPart_Attach": {
+            "use": "hinge_attach",
+            "variables": {
+              "string": {
+                "AcceptID": "radio"
+              }
+            }
+          }
+        }
+      },
+      "Headlight Hinge": {
+        "parent": "root",
+        "at": "Headlight Install Position",
+        "layer": 2,
+        "collider": {
+          "shape": "sphere",
+          "trigger": true,
+          "from": "Headlight Install Position"
+        },
+        "playmaker": {
+          "vehPart_Attach": {
+            "use": "hinge_attach",
+            "variables": {
+              "string": {
+                "AcceptID": "headlight"
+              }
+            }
+          }
+        }
+      },
+      "Headlight Collider": {
+        "layer": 0,
+        "collider": {
+          "shape": "box",
+          "trigger": true
+        },
+        "playmaker": {
+          "Headlights": {
+            "variables": {
+              "float": {
+                "position": 0
+              },
+              "string": {
+                "text": ""
+              }
+            },
+            "globalEvents": [
+              "OverItem",
+              "OffItem"
+            ],
+            "global": {
+              "OverItem": "over",
+              "OffItem": "off"
+            },
+            "start": "off",
+            "states": {
+              "off": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_3}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": ""
+                    }
+                  }
+                ]
+              },
+              "over": {
+                "actions": [
+                  {
+                    "ConvertFloatToString": {
+                      "floatVariable": "{position}",
+                      "stringVariable": "{text}",
+                      "format": "On;;Off"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": "Headlights"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": "{text}"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": "Switch: Left mouse button"
+                    }
+                  },
+                  {
+                    "GetMouseButtonDown": {
+                      "button": "Left",
+                      "sendEvent": "up",
+                      "inUpdateOnly": true
+                    }
+                  }
+                ],
+                "transitions": {
+                  "up": "toggle"
+                }
+              },
+              "toggle": {
+                "actions": [
+                  {
+                    "FloatCompare": {
+                      "float1": "{position}",
+                      "float2": 0.5,
+                      "tolerance": 0,
+                      "lessThan": "engage",
+                      "equal": "release",
+                      "greaterThan": "release"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "engage": "engage",
+                  "release": "release"
+                }
+              },
+              "engage": {
+                "actions": [
+                  {
+                    "PlaySound": {
+                      "gameObject": "owner",
+                      "clip": "asset:AudioClip/switch1",
+                      "volume": 1
+                    }
+                  },
+                  {
+                    "SetFloatValue": {
+                      "floatVariable": "{position}",
+                      "floatValue": 1
+                    }
+                  },
+                  {
+                    "SendEvent": {
+                      "eventTarget": {
+                        "target": "GameObject",
+                        "gameObject": "root",
+                        "sendToChildren": true
+                      },
+                      "sendEvent": "HeadlightsON"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              },
+              "release": {
+                "actions": [
+                  {
+                    "PlaySound": {
+                      "gameObject": "owner",
+                      "clip": "asset:AudioClip/switch1",
+                      "volume": 1
+                    }
+                  },
+                  {
+                    "SetFloatValue": {
+                      "floatVariable": "{position}",
+                      "floatValue": 0
+                    }
+                  },
+                  {
+                    "SendEvent": {
+                      "eventTarget": {
+                        "target": "GameObject",
+                        "gameObject": "root",
+                        "sendToChildren": true
+                      },
+                      "sendEvent": "HeadlightsOFF"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              }
+            }
+          },
+          "SwitchVisual": {
+            "variables": {
+              "float": {
+                "position": 0
+              }
+            },
+            "states": {
+              "check": {
+                "actions": [
+                  {
+                    "GetFsmFloat": {
+                      "gameObject": "owner",
+                      "fsmName": "Headlights",
+                      "variableName": "position",
+                      "storeValue": "{position}"
+                    }
+                  },
+                  {
+                    "FloatCompare": {
+                      "float1": "{position}",
+                      "float2": 0.5,
+                      "tolerance": 0,
+                      "lessThan": "off",
+                      "equal": "on",
+                      "greaterThan": "on"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "off": "off",
+                  "on": "on"
+                }
+              },
+              "off": {
+                "actions": [
+                  {
+                    "ActivateGameObject": {
+                      "gameObject": "Headlights OFF",
+                      "activate": true
+                    }
+                  },
+                  {
+                    "ActivateGameObject": {
+                      "gameObject": "Headlights ON",
+                      "activate": false
+                    }
+                  },
+                  {
+                    "NextFrameEvent": {
+                      "sendEvent": "next"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "check"
+                }
+              },
+              "on": {
+                "actions": [
+                  {
+                    "ActivateGameObject": {
+                      "gameObject": "Headlights OFF",
+                      "activate": false
+                    }
+                  },
+                  {
+                    "ActivateGameObject": {
+                      "gameObject": "Headlights ON",
+                      "activate": true
+                    }
+                  },
+                  {
+                    "NextFrameEvent": {
+                      "sendEvent": "next"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "next": "check"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Hitch Interact Collider": {
+        "layer": 0,
+        "collider": {
+          "shape": "box",
+          "trigger": true
+        },
+        "playmaker": {
+          "HitchUse": {
+            "variables": {
+              "bool": {
+                "attached": false,
+                "inRange": false
+              }
+            },
+            "globalEvents": [
+              "OverItem",
+              "OffItem"
+            ],
+            "global": {
+              "OverItem": "over",
+              "OffItem": "off"
+            },
+            "start": "off",
+            "states": {
+              "off": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_3}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": ""
+                    }
+                  }
+                ]
+              },
+              "over": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": "Tow Hitch"
+                    }
+                  },
+                  {
+                    "GetFsmBool": {
+                      "gameObject": "root",
+                      "fsmName": "TrailerAttach",
+                      "variableName": "trailerAttached",
+                      "storeValue": "{attached}"
+                    }
+                  },
+                  {
+                    "BoolTest": {
+                      "boolVariable": "{attached}",
+                      "isTrue": "attached",
+                      "isFalse": "notAttached"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "attached": "attached",
+                  "notAttached": "checkRange"
+                }
+              },
+              "checkRange": {
+                "actions": [
+                  {
+                    "GetFsmBool": {
+                      "gameObject": "root",
+                      "fsmName": "TrailerAttach",
+                      "variableName": "trailerInRange_bool",
+                      "storeValue": "{inRange}"
+                    }
+                  },
+                  {
+                    "BoolTest": {
+                      "boolVariable": "{inRange}",
+                      "isTrue": "inRange",
+                      "isFalse": "none"
+                    }
+                  }
+                ],
+                "transitions": {
+                  "inRange": "inRange",
+                  "none": "none"
+                }
+              },
+              "attached": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": "Trailer hitched"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": "Unhitch: Left mouse button"
+                    }
+                  },
+                  {
+                    "GetMouseButtonDown": {
+                      "button": "Left",
+                      "sendEvent": "use",
+                      "inUpdateOnly": true
+                    }
+                  },
+                  {
+                    "Wait": {
+                      "time": 0.25
+                    }
+                  }
+                ],
+                "transitions": {
+                  "use": "use",
+                  "FINISHED": "over"
+                }
+              },
+              "inRange": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": "Trailer in reach"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": "Hitch: Left mouse button"
+                    }
+                  },
+                  {
+                    "GetMouseButtonDown": {
+                      "button": "Left",
+                      "sendEvent": "use",
+                      "inUpdateOnly": true
+                    }
+                  },
+                  {
+                    "Wait": {
+                      "time": 0.25
+                    }
+                  }
+                ],
+                "transitions": {
+                  "use": "use",
+                  "FINISHED": "over"
+                }
+              },
+              "none": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName_2}",
+                      "text": "No trailer in reach"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "Wait": {
+                      "time": 0.25
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              },
+              "use": {
+                "actions": [
+                  {
+                    "SendEvent": {
+                      "eventTarget": "root/TrailerAttach",
+                      "sendEvent": "hitchUse"
+                    }
+                  },
+                  {
+                    "Wait": {
+                      "time": 0.1
+                    }
+                  }
+                ],
+                "transitions": {
+                  "FINISHED": "over"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Part Adjuster Toolset": {
+        "parent": "root",
+        "at": "Part Adjuster Location",
+        "align": "Part Adjuster Location",
+        "layer": 0,
+        "add": [
+          "MeshFilter",
+          "MeshRenderer",
+          "BoxCollider"
+        ],
+        "MeshFilter": {
+          "sharedMesh": "asset:Mesh/toolset"
+        },
+        "MeshRenderer": {
+          "sharedMaterial": "asset:Material/tools_1"
+        },
+        "BoxCollider": {
+          "isTrigger": true,
+          "center": [
+            0.002,
+            -0.011,
+            -0.006
+          ],
+          "size": [
+            0.03,
+            0.24,
+            0.303
+          ]
+        },
+        "playmaker": {
+          "ID": {
+            "variables": {
+              "string": {
+                "ID": "PartAdjusterTools"
+              }
+            },
+            "states": {
+              "ID": {}
+            }
+          },
+          "ItemName": {
+            "globalEvents": [
+              "OverItem",
+              "OffItem"
+            ],
+            "global": {
+              "OverItem": "over",
+              "OffItem": "off"
+            },
+            "start": "off",
+            "states": {
+              "off": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": ""
+                    }
+                  }
+                ]
+              },
+              "over": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": "Part Adjuster Toolset"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": "Use: F"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "Toolset": {
+        "parent": "root",
+        "at": "Toolset Location",
+        "align": "Toolset Location",
+        "layer": 0,
+        "add": [
+          "MeshFilter",
+          "MeshRenderer",
+          "SphereCollider"
+        ],
+        "MeshFilter": {
+          "sharedMesh": "asset:Mesh/toolset.002"
+        },
+        "MeshRenderer": {
+          "sharedMaterial": "asset:Material/tools_1"
+        },
+        "playmaker": {
+          "ID": {
+            "variables": {
+              "string": {
+                "ID": "Toolbox"
+              }
+            },
+            "states": {
+              "ID": {}
+            }
+          },
+          "ItemName": {
+            "globalEvents": [
+              "OverItem",
+              "OffItem"
+            ],
+            "global": {
+              "OverItem": "over",
+              "OffItem": "off"
+            },
+            "start": "off",
+            "states": {
+              "off": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": ""
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": ""
+                    }
+                  }
+                ]
+              },
+              "over": {
+                "actions": [
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemName}",
+                      "text": "Toolset"
+                    }
+                  },
+                  {
+                    "UiTextSetText": {
+                      "gameObject": "{UI_ItemUse}",
+                      "text": "Use: F"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "SphereCollider": {
+          "isTrigger": true,
+          "center": [
+            0,
+            0,
+            0
+          ],
+          "radius": 0.05
+        }
       }
     },
     "VehicleController": {
@@ -3316,7 +6630,18 @@
         1.0,
         0.817,
         0.651
-      ]
+      ],
+      "powertrain.wheelGroups.1.steerCoefficient": 0,
+      "powertrain.wheelGroups.2.steerCoefficient": 0
+    },
+    "NWH.VehiclePhysics2.Modules.FlipOver.FlipOverModuleWrapper": {
+      "module.flipOverType": "Gradual",
+      "module.flipOverActivation": "Automatic",
+      "module.allowedAngle": 70,
+      "module.instantFlipOverVerticalOffset": 1,
+      "module.maxDetectionSpeed": 1,
+      "module.timeout": 1,
+      "module.flipOverDuration": 3
     }
   }
 }
