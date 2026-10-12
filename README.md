@@ -19,8 +19,8 @@ was built for.
   turns up wherever the game spawns Outriders.
 - **Astron 2000 4G52 2.0L I4** (`astron_4g52`): the 64 kW tune with its 3.91 final drive and 650 rpm
   idle. Uses the vanilla 2.3L's model for now. Sold where the 2.3L is.
-- **Engine Sim users:** paste `SigmaMod/examples/enginesim/astron_4g52.cfg` onto the end of
-  `BepInEx/config/EngineSim.engines.cfg` and the Astron sounds like an Astron.
+- **Engine Sim users:** `SigmaMod/enginesim_assets/astron_4g52.engines.cfg` makes the Astron sound like an
+  Astron. Engine Sim 1.4 and later reads it from there by itself; nothing to paste.
 - **`examples/sigma_test`**: a from-scratch test rig, every bit of it built in its `.json` with no
   donor. Engine and radiator mounts, fuel tank you can siphon, ignition key, hand throttle, clutch,
   gear and steering levers, handbrake, two flywheels on the gearbox, a belt clutch driving a sprung
