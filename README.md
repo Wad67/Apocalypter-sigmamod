@@ -135,7 +135,8 @@ one gets binned and the log bitches about it.
 | `sigma_id` | Required. No id, not loaded, so a file can hold reference junk. Change it later and saved copies are orphaned. |
 | `sigma_name` | Display name. Defaults to the id. |
 | `sigma_type` | `chassis`: see [Chassis](#chassis). |
-| `sigma_spawn` | `false` keeps it out of world spawning. |
+| `sigma_spawn` | `false` keeps it out of world spawning. A number is how likely it is next to each other thing in the same spawn list: `0.25` turns up a quarter as often, `2` twice. |
+| `sigma_spawn_like` | Game prefab ids (`es3prefab` from an export, comma-separated). It joins the spawn lists holding one of them *instead of* its donor's: a from-scratch part with a bumper's id is found where bumpers are, and a toolbox variant with a repair box's id isn't in your starting kit. |
 
 `sigma_id` on any other object names it inside the template, for the `.json` and for code.
 
@@ -311,6 +312,23 @@ other object's mesh and hides that mesh.
 | `"doohickey:BoxCollider"` | A component on it. |
 | `"asset:AudioClip/wrench1"` | A loaded game asset by type and name. `"asset:<id>"` takes an `es3global` id from an export. |
 | `"file:sounds/idle.wav"` | A file next to your `.glb`: `.wav` (PCM or float) or `.png`/`.jpg`. |
+
+**Shorthand**, because the long form is a fucking novel. It all expands to the long form when the file
+loads, the long form still works, and expanding the long form changes nothing. Want proof? *VerboseLog* writes
+the expansion to `BepInEx/SigmaMod-expanded/`, or offline:
+`dotnet tools/GltfTest/GltfTest.dll expand <file.json>` (warns and exits 1 if anything's off).
+
+- Libraries at the top of the file: `"fsms"`, `"states"` and `"actions"` (a list), each `{ "<name>": ... }`.
+- `"use": "<name>"` pulls one in wherever that thing goes: an FSM, a state, or an entry in an `"actions"` list
+  (spliced in). `"with": { "roll": "Locked" }` fills `$roll` in it; a library entry can set defaults with
+  `"params"`. `"$roll"` on its own keeps the value's type, inside text it's just text. Anything written next
+  to `"use"` on an FSM or state is merged over it.
+- `SetProperties` / `GetProperties`: one action, many properties, and it works out the parameter and enum types:
+  `{ "SetProperties": { "on": "{ConfigurableJoint}", "xMotion": "Locked", "anchor": "{pos}" } }`.
+  `"on"` is a typed object variable, a gameObject, or `"thing:Component"`; add `"type"` for a global variable.
+
+`BurnersUtilities/sigma_assets/trailer_hitches.json` is a working example: 306 lines that expand to the same
+2100-line monster.
 
 **Cribbing:** *Export All* writes `<name>.fsm.json` next to every `.glb`: every FSM of that game object
 in this exact format. Read how vanilla does shit, copy what you want, rename the references.

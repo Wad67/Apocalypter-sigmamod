@@ -50,6 +50,10 @@ namespace SigmaMod
             public GameObject Prefab;    // template: active itself, kept asleep under an inactive holder, like a vanilla prefab asset
             public GameObject Donor;     // the game prefab its objects come from
             public bool Spawns;          // joins the game's spawn lists that hold Donor (root sigma_spawn, default true)
+            public double SpawnWeight = 1; // root sigma_spawn as a number: how likely next to each other entry of a list
+            // root sigma_spawn_like: game prefabs (Easy Save ids) whose spawn lists it joins instead of Donor's, so a
+            // part built from scratch turns up where those do, and a variant somewhere other than its donor
+            public readonly List<GameObject> SpawnLike = new List<GameObject>();
             // custom properties of each template node, by the ES3 local id of the object it became
             public readonly Dictionary<long, Dictionary<string, object>> NodeExtras = new Dictionary<long, Dictionary<string, object>>();
             // sigma_id of non-root nodes (unique within the template) -> ES3 local id
@@ -59,7 +63,8 @@ namespace SigmaMod
             internal readonly List<KeyValuePair<long, UnityEngine.Object>> Refs = new List<KeyValuePair<long, UnityEngine.Object>>();
         }
 
-        public const string IdKey = "sigma_id", NameKey = "sigma_name", BehaviourKey = "sigma_behaviour", TypeKey = "sigma_type", SpawnKey = "sigma_spawn";
+        public const string IdKey = "sigma_id", NameKey = "sigma_name", BehaviourKey = "sigma_behaviour", TypeKey = "sigma_type", SpawnKey = "sigma_spawn",
+                            SpawnLikeKey = "sigma_spawn_like";
 
         private sealed class FileEntry { public DateTime Stamp; public readonly List<Info> Templates = new List<Info>(); }
         private static readonly Dictionary<string, FileEntry> ByPath = new Dictionary<string, FileEntry>(StringComparer.OrdinalIgnoreCase);
@@ -191,7 +196,55 @@ namespace SigmaMod
 
         // Builds (or rebuilds when the file changed) the prefabs of a file: one per root object that has a
         // sigma_id. Root objects without one are not loaded (reference meshes, scraps, stray colliders).
+        // ids as a number, a string of comma-separated numbers, or a list of either
+        private static IEnumerable<long> Ids(object v)
+        {
+            if (v == null) yield break;
+            var items = v is List<object> l ? l : new List<object> { v };
+            foreach (var x in items)
+                foreach (var part in Convert.ToString(x, System.Globalization.CultureInfo.InvariantCulture).Split(','))
+                    if (long.TryParse(part.Trim(), out long id)) yield return id;
+        }
+
+        // sigma_spawn: absent or true 1, false 0, a number (or a numeric string) that number
+        private static double SpawnWeightOf(Dictionary<string, object> ex)
+        {
+            if (!ex.TryGetValue(SpawnKey, out var v)) return 1;
+            switch (v)
+            {
+                case bool b: return b ? 1 : 0;
+                case double d: return Math.Max(0, d);
+                case string s:
+                    s = s.Trim().ToLowerInvariant();
+                    if (s == "false") return 0;
+                    if (s == "true") return 1;
+                    return double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n) ? Math.Max(0, n) : 1;
+            }
+            return 1;
+        }
+
         private static string JsonPath(string glb) => Path.ChangeExtension(glb, ".json");
+
+        // The .json's shorthand expanded to the long form (Shorthand.cs). With VerboseLog the long form is written to
+        // BepInEx/SigmaMod-expanded/<mod>/<file>.json, and checked to expand to itself, so it loads the same.
+        private static Dictionary<string, object> ExpandShorthand(Dictionary<string, object> doc, string path)
+        {
+            string file = Path.GetFileName(JsonPath(path));
+            Shorthand.FindType = Types.Any;
+            var res = Shorthand.Expand(doc, w => Plugin.Log.LogWarning($"{file}: {w}"));
+            if (!Plugin.VerboseLogEntry.Value) return res;
+            try
+            {
+                string mod = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(path)));
+                string dir = Path.Combine(Path.Combine(BepInEx.Paths.BepInExRootPath, Plugin.NAME + "-expanded"), mod);
+                Directory.CreateDirectory(dir);
+                File.WriteAllText(Path.Combine(dir, file), Json.Pretty(res));
+                if (Json.Write(Shorthand.Expand(res, null)) != Json.Write(res))
+                    Plugin.Log.LogWarning($"{file}: its long form doesn't expand to itself; please report this");
+            }
+            catch (Exception e) { Plugin.Log.LogWarning($"{file}: writing the long form: {e.Message}"); }
+            return res;
+        }
 
         private static List<Info> Get(string path, ES3ReferenceMgrBase mgr)
         {
@@ -208,6 +261,7 @@ namespace SigmaMod
                 {
                     try { overrides = Json.Parse(File.ReadAllText(JsonPath(path))) as Dictionary<string, object>; }
                     catch (Exception e) { throw new Exception($"{Path.GetFileName(JsonPath(path))}: {e.Message}"); }
+                    if (overrides != null) overrides = ExpandShorthand(overrides, path);
                 }
             }
             catch (Exception e)
@@ -355,8 +409,15 @@ namespace SigmaMod
             {
                 Id = id, Name = name, PrefabId = prefabId, Path = path, DonorName = donor != null ? donor.name : "nothing", Prefab = go, Es3 = es3,
                 Donor = donor != null ? donor.gameObject : null,
-                Spawns = !(rootEx.TryGetValue(SpawnKey, out var spv) && (spv is bool spb && !spb || spv is double spd && spd == 0 || spv is string sps && sps.Trim().ToLowerInvariant() == "false"))
+                SpawnWeight = SpawnWeightOf(rootEx),
             };
+            t.Spawns = t.SpawnWeight > 0;
+            foreach (long like in Ids(rootEx.TryGetValue(SpawnLikeKey, out var slv) ? slv : null))
+            {
+                var p = mgr.GetPrefab(like, true);
+                if (p != null) t.SpawnLike.Add(p.gameObject);
+                else Plugin.Log.LogWarning($"custom prefab: '{id}': {SpawnLikeKey} {like} is not a loaded game prefab");
+            }
 
             // donor objects by their local id (Instantiate remaps the dictionary onto the clone)
             var byId = new Dictionary<long, UnityEngine.Object>();

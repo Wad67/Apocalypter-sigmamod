@@ -990,7 +990,7 @@
                   "maxDistance": 0.2,
                   "storeDidHit": "{trailerInRange_bool}",
                   "storeHitObject": "{Trailer}",
-                  "repeatInterval": 0.25,
+                  "repeatInterval": 2,
                   "layerMask": [
                     20
                   ]
@@ -1024,7 +1024,7 @@
                   "maxDistance": 0.2,
                   "storeDidHit": "{trailerInRange_bool}",
                   "storeHitObject": "{Trailer}",
-                  "repeatInterval": 0.25,
+                  "repeatInterval": 2,
                   "layerMask": [
                     20
                   ]

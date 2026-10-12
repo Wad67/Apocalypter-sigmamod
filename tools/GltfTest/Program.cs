@@ -8,12 +8,16 @@ using SigmaMod;
 // compare <a> <b>        compare node tree, TRS, extras and mesh sizes of two files
 // variant <out.glb> <es3prefab> <sigma_id> [sigma_name] [key=value ...]
 //                        a template that is a game prefab as it is: one root node with those properties
+// expand <file.json> [Managed dir]
+//                        print a template .json with its shorthand expanded to the long form (types from the
+//                        game's assemblies, found above this tool unless given)
 static class Program
 {
     static int Main(string[] a)
     {
         switch (a[0])
         {
+            case "expand": return Expand(a[1], a.Length > 2 ? a[2] : null);
             case "dump": Dump(GltfReader.Load(a[1])); return 0;
             case "synth": GltfWriter.Save(Synth(), a[1]); return 0;
             case "compare": return Compare(GltfReader.Load(a[1]), GltfReader.Load(a[2]));
@@ -31,6 +35,52 @@ static class Program
             }
         }
         return 2;
+    }
+
+    // types are looked up in the game's own assemblies, loaded for reflection only (nothing in them runs)
+    static int Expand(string file, string managed)
+    {
+        for (var d = new System.IO.DirectoryInfo(AppContext.BaseDirectory); managed == null && d != null; d = d.Parent)
+            if (System.IO.Directory.Exists(System.IO.Path.Combine(d.FullName, "Apocalypter_Data", "Managed"))) managed = System.IO.Path.Combine(d.FullName, "Apocalypter_Data", "Managed");
+        if (managed == null || !System.IO.Directory.Exists(managed)) { Console.Error.WriteLine("no Managed folder at " + managed + "; give it as the second argument"); return 2; }
+        var asms = new List<System.Reflection.Assembly>();
+        System.Runtime.Loader.AssemblyLoadContext.Default.Resolving += (ctx, name) =>
+        {
+            var p = System.IO.Path.Combine(managed, name.Name + ".dll");
+            return System.IO.File.Exists(p) ? ctx.LoadFromAssemblyPath(System.IO.Path.GetFullPath(p)) : null;
+        };
+        foreach (var dll in System.IO.Directory.GetFiles(managed, "*.dll"))
+        {
+            var n = System.IO.Path.GetFileNameWithoutExtension(dll);
+            if (n == "mscorlib" || n == "netstandard" || n.StartsWith("System") || n.StartsWith("Microsoft")) continue;
+            try { asms.Add(System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromAssemblyPath(System.IO.Path.GetFullPath(dll))); } catch { }
+        }
+        var cache = new Dictionary<string, Type>();
+        Shorthand.FindType = name =>
+        {
+            if (cache.TryGetValue(name, out var have)) return have;
+            Type pick = Type.GetType(name);
+            foreach (var asm in asms)
+            {
+                if (pick != null && pick.FullName == name) break;
+                Type[] types;
+                try { types = asm.GetTypes(); }
+                catch (System.Reflection.ReflectionTypeLoadException e) { types = e.Types.Where(x => x != null).ToArray(); }
+                catch { continue; }
+                foreach (var t in types)
+                {
+                    if (t.FullName == name) { pick = t; break; }
+                    if (t.Name == name && (pick == null || (t.Namespace ?? "").StartsWith("UnityEngine") && !(pick.Namespace ?? "").StartsWith("UnityEngine"))) pick = t;
+                }
+            }
+            return cache[name] = pick;
+        };
+        var doc = Json.Parse(System.IO.File.ReadAllText(file)) as Dictionary<string, object>;
+        int warnings = 0;
+        var res = Shorthand.Expand(doc, w => { warnings++; Console.Error.WriteLine("warning: " + w); });
+        Console.WriteLine(Json.Pretty(res));
+        if (Json.Write(Shorthand.Expand(res, null)) != Json.Write(res)) { Console.Error.WriteLine("error: the long form doesn't expand to itself"); return 1; }
+        return warnings > 0 ? 1 : 0;
     }
 
     static GltfModel Synth()

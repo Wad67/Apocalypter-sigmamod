@@ -63,7 +63,13 @@ namespace SigmaMod
             if (t == typeof(bool)) return v is bool b ? b : bool.Parse(v.ToString());
             if (t == typeof(float)) return System.Convert.ToSingle(v, CultureInfo.InvariantCulture);
             if (t == typeof(double)) return System.Convert.ToDouble(v, CultureInfo.InvariantCulture);
-            if (t == typeof(int)) return System.Convert.ToInt32(v, CultureInfo.InvariantCulture);
+            if (t == typeof(int))
+            {
+                // an int field (often a count of frames, like SphereCast2.repeatInterval) quietly rounding 0.25 to 0
+                // breaks things in ways that are hard to see
+                if (v is double dv && Math.Abs(dv - Math.Round(dv)) > 1e-9) throw new Exception($"{dv} is not a whole number (this field is an integer)");
+                return System.Convert.ToInt32(v, CultureInfo.InvariantCulture);
+            }
             if (t == typeof(long)) return System.Convert.ToInt64(v, CultureInfo.InvariantCulture);
             if (t == typeof(byte)) return System.Convert.ToByte(v, CultureInfo.InvariantCulture);
             var arr = v as List<object>;
@@ -320,6 +326,28 @@ namespace SigmaMod
         private static readonly Dictionary<string, Type> Cache = new Dictionary<string, Type>();
 
         public static Type Component(string name) => Find(name, typeof(Component));
+
+        // any type by full or short name, abstract ones too; null when there is none
+        public static Type Any(string name)
+        {
+            string key = "any|" + name;
+            if (Cache.TryGetValue(key, out var have)) return have;
+            Type pick = null;
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type[] types;
+                try { types = asm.GetTypes(); }
+                catch (ReflectionTypeLoadException e) { types = e.Types.Where(x => x != null).ToArray(); }
+                catch { continue; }
+                foreach (var t in types)
+                {
+                    if (t.FullName == name) { pick = t; break; }
+                    if (t.Name == name && (pick == null || (t.Namespace ?? "").StartsWith("UnityEngine") && !(pick.Namespace ?? "").StartsWith("UnityEngine"))) pick = t;
+                }
+                if (pick != null && pick.FullName == name) break;
+            }
+            return Cache[key] = pick;
+        }
 
         public static Type Find(string name, Type baseType)
         {
