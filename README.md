@@ -102,6 +102,9 @@ one gets binned and the log bitches about it.
    `sigma_name` for players. A car that drives on its own tuning also gets `sigma_type = chassis`.
 6. **Export.** File > Export > glTF 2.0: *glTF Binary*, *Include > Custom Properties* **on** (forget
    this and nothing loads), *+Y Up* on, *Visible Objects* off. Save into a `sigma_assets` folder.
+   Then `python3 tools/strip_textures.py <file.glb>`: Blender stuffs every game texture into the file,
+   and SigmaMod uses the game's own materials anyway, so that's a hundred-odd MB of dead weight. Your
+   own materials keep theirs. All game materials? *Material > Images: None* in the export does the same.
 7. **Tune** (optional): a `.json` with the same name next to it. See [Tuning](#tuning).
 8. **Load a save** (or turn on *HotReload* and just save the file). Log says `custom prefab: 'my_truck' ... from donor 'Outrider'`. Spawn it from
    Apocaspawner or go hunt for it. Changed the file? Reload the save.
@@ -343,7 +346,7 @@ dotnet build -c Release
 
 Builds against the game's own assemblies and deploys to `BepInEx/plugins/SigmaMod/`. Set `GameDir`
 if the repo isn't in the game folder. `dotnet build -c Release tools/GltfTest` builds the variant
-tool. `apocasigma.glb` is too fat for GitHub (159 MB); it's only in the release zip.
+tool.
 
 ## License
 
