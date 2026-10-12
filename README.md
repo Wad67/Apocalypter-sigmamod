@@ -21,12 +21,14 @@ was built for.
   idle. Uses the vanilla 2.3L's model for now. Sold where the 2.3L is.
 - **Engine Sim users:** `SigmaMod/enginesim_assets/astron_4g52.engines.cfg` makes the Astron sound like an
   Astron. Engine Sim 1.4 and later reads it from there by itself; nothing to paste.
-- **`examples/sigma_test`**: a from-scratch test rig, every bit of it built in its `.json` with no
-  donor. Engine and radiator mounts, fuel tank you can siphon, ignition key, hand throttle, clutch,
-  gear and steering levers, handbrake, two flywheels on the gearbox, a belt clutch driving a sprung
-  rear axle, wheel, dashboard, radio and headlight hinges, light switch, interior light, tow hitch,
-  load lock volumes and toolsets. It's an ugly frame, not a car; it's there to crib from. Needs Engine
-  Sim 1.3.0 (belt, couplings, windage). Copy both files into `sigma_assets` to spawn it.
+- **Test rig** (`sigma_chassis_test`, `sigma_assets/sigma_test`): a from-scratch rig, every bit of it built
+  in its `.json` with no donor. Engine and radiator mounts, fuel tank you can siphon, ignition key, hand
+  throttle, clutch, gear and steering levers, handbrake, two flywheels on the gearbox, a belt clutch
+  driving a sprung rear axle, wheel, dashboard, radio and headlight hinges, light switch, interior light,
+  tow hitch, load lock volumes and toolsets. It's an ugly frame, not a car; it's there to crib from.
+  Spawn it with Apocaspawner. The belt, couplings and flywheel drag are Engine Sim's (1.3.0 or later):
+  without it the rig still spawns and the engine runs, but nothing drives the wheels, and the log
+  names the bits it left out.
 
 Pull them apart in Blender to see how a template is put together.
 
