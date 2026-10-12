@@ -327,8 +327,8 @@ the expansion to `BepInEx/SigmaMod-expanded/`, or offline:
   `{ "SetProperties": { "on": "{ConfigurableJoint}", "xMotion": "Locked", "anchor": "{pos}" } }`.
   `"on"` is a typed object variable, a gameObject, or `"thing:Component"`; add `"type"` for a global variable.
 
-`BurnersUtilities/sigma_assets/trailer_hitches.json` is a working example: 306 lines that expand to the same
-2100-line monster.
+`BurnersUtilities/sigma_assets/trailer_hitches.json` is a working example: 338 lines that expand to a
+2400-line monster.
 
 **Cribbing:** *Export All* writes `<name>.fsm.json` next to every `.glb`: every FSM of that game object
 in this exact format. Read how vanilla does shit, copy what you want, rename the references.
