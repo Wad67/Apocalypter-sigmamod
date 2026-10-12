@@ -296,6 +296,8 @@ other object's mesh and hides that mesh.
   merged over it.
 - Actions are `{ "<ActionType>": { fields } }`, PlayMaker's or the game's own. Skipped fields keep the
   action's defaults. `"_enabled": false` switches one off.
+- FSMs are built after every object has its components, so an action can point at a component on any object,
+  whatever order the nodes are in.
 - `"{name}"` binds a variable (local, else global like `Hand`), `"{}"` is none, `"owner"` is the FSM's
   own object. Anything else is a constant.
 - Nested stuff (`FsmProperty`, event targets) takes an object of its fields:
@@ -316,7 +318,8 @@ other object's mesh and hides that mesh.
 **Shorthand**, because the long form is a fucking novel. It all expands to the long form when the file
 loads, the long form still works, and expanding the long form changes nothing. Want proof? *VerboseLog* writes
 the expansion to `BepInEx/SigmaMod-expanded/`, or offline:
-`dotnet tools/GltfTest/GltfTest.dll expand <file.json>` (warns and exits 1 if anything's off).
+`dotnet tools/GltfTest/GltfTest.dll expand <file.json>` (warns and exits 1 if anything's off). It knows the game's
+types and every installed mod's, so `SetProperties` on another mod's component checks out too.
 
 - Libraries at the top of the file: `"fsms"`, `"states"` and `"actions"` (a list), each `{ "<name>": ... }`.
 - `"use": "<name>"` pulls one in wherever that thing goes: an FSM, a state, or an entry in an `"actions"` list

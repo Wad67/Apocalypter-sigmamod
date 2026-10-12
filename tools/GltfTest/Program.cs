@@ -37,23 +37,32 @@ static class Program
         return 2;
     }
 
-    // types are looked up in the game's own assemblies, loaded for reflection only (nothing in them runs)
+    // types are looked up in the game's own assemblies and the installed mods', loaded for reflection only (nothing in them runs)
     static int Expand(string file, string managed)
     {
         for (var d = new System.IO.DirectoryInfo(AppContext.BaseDirectory); managed == null && d != null; d = d.Parent)
             if (System.IO.Directory.Exists(System.IO.Path.Combine(d.FullName, "Apocalypter_Data", "Managed"))) managed = System.IO.Path.Combine(d.FullName, "Apocalypter_Data", "Managed");
         if (managed == null || !System.IO.Directory.Exists(managed)) { Console.Error.WriteLine("no Managed folder at " + managed + "; give it as the second argument"); return 2; }
         var asms = new List<System.Reflection.Assembly>();
+        // mods' components (other plugins' types a template adds or sets) and BepInEx itself, next to the game's
+        string game = System.IO.Path.GetFullPath(System.IO.Path.Combine(managed, "..", ".."));
+        var dirs = new List<string> { managed };
+        foreach (var sub in new[] { "BepInEx/core", "BepInEx/plugins" })
+        {
+            var d = System.IO.Path.Combine(game, sub);
+            if (System.IO.Directory.Exists(d)) dirs.Add(d);
+        }
+        var byName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var d in dirs)
+            foreach (var dll in System.IO.Directory.GetFiles(d, "*.dll", System.IO.SearchOption.AllDirectories))
+                byName.TryAdd(System.IO.Path.GetFileNameWithoutExtension(dll), dll);
         System.Runtime.Loader.AssemblyLoadContext.Default.Resolving += (ctx, name) =>
+            byName.TryGetValue(name.Name, out var p) ? ctx.LoadFromAssemblyPath(System.IO.Path.GetFullPath(p)) : null;
+        foreach (var kv in byName)
         {
-            var p = System.IO.Path.Combine(managed, name.Name + ".dll");
-            return System.IO.File.Exists(p) ? ctx.LoadFromAssemblyPath(System.IO.Path.GetFullPath(p)) : null;
-        };
-        foreach (var dll in System.IO.Directory.GetFiles(managed, "*.dll"))
-        {
-            var n = System.IO.Path.GetFileNameWithoutExtension(dll);
+            var n = kv.Key;
             if (n == "mscorlib" || n == "netstandard" || n.StartsWith("System") || n.StartsWith("Microsoft")) continue;
-            try { asms.Add(System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromAssemblyPath(System.IO.Path.GetFullPath(dll))); } catch { }
+            try { asms.Add(System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromAssemblyPath(System.IO.Path.GetFullPath(kv.Value))); } catch { }
         }
         var cache = new Dictionary<string, Type>();
         Shorthand.FindType = name =>

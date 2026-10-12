@@ -54,11 +54,13 @@ namespace SigmaMod
             }
         }
 
-        // layer, tag, added components and new FSMs, for the root and every node
+        // layer, tag, added components and new FSMs, for the root and every node. FSMs come last, after every
+        // object has its components, so an action can point at a component on any object whatever the order
         public static void Build(GameObject root, Dictionary<string, object> spec, Func<string, GameObject> node, JsonValues ctx, string where)
         {
             Create(spec, node, ctx, where);
-            foreach (var kv in Objects(root, spec, node, where))
+            var objects = Objects(root, spec, node, where).ToList();
+            foreach (var kv in objects)
             {
                 var go = kv.Key;
                 var s = kv.Value;
@@ -86,6 +88,12 @@ namespace SigmaMod
                 if (s.TryGetValue("collider", out var cv))
                     try { Colliders.Apply(go, cv, ctx, at); }
                     catch (Exception e) { Plugin.Log.LogWarning($"{at}: collider: {e.Message}"); }
+            }
+            foreach (var kv in objects)
+            {
+                var go = kv.Key;
+                var s = kv.Value;
+                string at = go == root ? where : where + "/" + go.name;
                 if (s.TryGetValue("playmaker", out var pv))
                 {
                     if (!(pv is Dictionary<string, object> fsms)) { Plugin.Log.LogWarning($"{at}: 'playmaker' must be an object of FSM name: definition"); continue; }
