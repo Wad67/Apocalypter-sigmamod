@@ -17,6 +17,10 @@ namespace SigmaMod
     //   "layer": <number or layer name>, "tag": "<tag>"
     //   "add": [ "<Component>", ... ]                 components to add (skipped if already there)
     //   "collider": "convex" | { ... }                colliders from the object's mesh, see Colliders
+    //   "instance": { "fsm": "<FsmName>", "where": { "<variable>": value }, "as": "<name>" }   (or a list)
+    //                                                 a working part of the game placed just before this object,
+    //                                                 at its position and turn, so this object comes right after
+    //                                                 it (see Instances)
     //   "playmaker": { "<FsmName>": { definition } }   new PlayMaker FSMs, see FsmJson
     //   "<Component>": { "<field.path>": value, ... }  values on a component of the object
     //   "fsm": { "<FsmName>": { "<key>": value } }      values in FSMs on the object or below it
@@ -37,7 +41,7 @@ namespace SigmaMod
     internal static class Overrides
     {
         private const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-        private static readonly HashSet<string> Reserved = new HashSet<string> { "nodes", "drive", "fsm", "add", "collider", "playmaker", "layer", "tag", "parent", "position", "rotation", "at", "align" };
+        private static readonly HashSet<string> Reserved = new HashSet<string> { "nodes", "drive", "poi", "instance", "fsm", "add", "collider", "playmaker", "layer", "tag", "parent", "position", "rotation", "at", "align" };
 
         private static IEnumerable<KeyValuePair<GameObject, Dictionary<string, object>>> Objects(GameObject root, Dictionary<string, object> spec,
                                                                                                Func<string, GameObject> node, string where)
@@ -59,6 +63,7 @@ namespace SigmaMod
         public static void Build(GameObject root, Dictionary<string, object> spec, Func<string, GameObject> node, JsonValues ctx, string where)
         {
             Create(spec, node, ctx, where);
+            PlaceInstances(root, spec, node, ctx, where);
             var objects = Objects(root, spec, node, where).ToList();
             foreach (var kv in objects)
             {
@@ -104,6 +109,24 @@ namespace SigmaMod
                         catch (Exception e) { Plugin.Log.LogWarning($"{at}: playmaker '{f.Key}': {e.Message}"); }
                     }
                 }
+            }
+        }
+
+        // the game's working parts first, so the rest of the .json can name them ("as")
+        private static void PlaceInstances(GameObject root, Dictionary<string, object> spec, Func<string, GameObject> node, JsonValues ctx, string where)
+        {
+            var specs = new List<KeyValuePair<GameObject, Dictionary<string, object>>> { new KeyValuePair<GameObject, Dictionary<string, object>>(root, spec) };
+            if (spec.TryGetValue("nodes", out var nv) && nv is Dictionary<string, object> nodes)
+                foreach (var nk in nodes)
+                    if (nk.Value is Dictionary<string, object> ns && ns.ContainsKey("instance") && node(nk.Key) is GameObject g)
+                        specs.Add(new KeyValuePair<GameObject, Dictionary<string, object>>(g, ns));
+            foreach (var kv in specs)
+            {
+                if (!kv.Value.TryGetValue("instance", out var iv)) continue;
+                string at = kv.Key == root ? where : where + "/" + kv.Key.name;
+                foreach (var one in iv is List<object> many ? many : new List<object> { iv })
+                    try { Instances.Place(kv.Key, one as Dictionary<string, object>, ctx, at); }
+                    catch (Exception e) { Plugin.Log.LogWarning($"{at}: instance: {e.Message}"); }
             }
         }
 

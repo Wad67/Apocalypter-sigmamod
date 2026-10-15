@@ -47,6 +47,9 @@ namespace SigmaMod
             public string Mod;           // mod that ships the file (sigma.json "name" or its folder name)
             public string DonorName;
             public bool IsVehicle;
+            public string Type;          // root sigma_type
+            public string RootName;      // the root's name in the model (Blender's); the root object itself is named after the id
+            public Dictionary<string, object> Spec;   // its block in the .json
             public GameObject Prefab;    // template: active itself, kept asleep under an inactive holder, like a vanilla prefab asset
             public GameObject Donor;     // the game prefab its objects come from
             public bool Spawns;          // joins the game's spawn lists that hold Donor (root sigma_spawn, default true)
@@ -163,6 +166,7 @@ namespace SigmaMod
 
         internal static void Registered()
         {
+            Poi.Rebuild();
             SpawnLists.Join(All.Where(i => i.Spawns));
             InvalidateApocaspawner();
         }
@@ -315,6 +319,7 @@ namespace SigmaMod
                 var t = Assemble(model, root, path, id, prefabId, rootEx, donor, mgr, spec,
                                  overrides != null && overrides.TryGetValue("fsms", out var fl) ? fl as Dictionary<string, object> : null);
                 t.Stamp = stamp;
+                t.RootName = rootNode.Name;
                 entry.Templates.Add(t);
                 ByPrefabId[prefabId] = t;
                 Plugin.Verbose($"custom prefab: '{id}': {how}");
@@ -481,6 +486,9 @@ namespace SigmaMod
 
             string type = rootEx.TryGetValue(TypeKey, out var tv) ? tv as string : null;
             bool chassis = string.Equals(type, "chassis", StringComparison.OrdinalIgnoreCase);
+            bool poi = string.Equals(type, "poi", StringComparison.OrdinalIgnoreCase);
+            t.Type = type;
+            t.Spec = overrides;
             Dictionary<string, string> donorValues = null, resetValues = null;
             if (chassis)
             {
@@ -488,6 +496,7 @@ namespace SigmaMod
                 NewChassis(go, id, overrides);
                 resetValues = ValueReport.Snapshot(go);
             }
+            else if (poi) t.Spawns = false;   // placed by the terrain generator (Poi), not by spawn lists
             else if (type != null) Plugin.Log.LogWarning($"custom prefab: '{id}': unknown {TypeKey} '{type}'");
 
             if (overrides != null) Overrides.Apply(go, overrides, Node, ctx, where);

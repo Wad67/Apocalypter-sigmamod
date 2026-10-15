@@ -15,11 +15,11 @@ namespace SigmaMod
     {
         public const string GUID = "com.burner.apocalypter.sigmamod";
         public const string NAME = "SigmaMod";
-        public const string VERSION = "0.3.2";
+        public const string VERSION = "0.4.0";
 
         public static ManualLogSource Log;
         public static ConfigEntry<bool> VerboseLogEntry;
-        public static ConfigEntry<bool> ExportAllEntry;
+        public static ConfigEntry<bool> ExportAllEntry, ExportPlacesEntry, ExportMaterialsEntry;
         public static ConfigEntry<bool> HotReloadEntry;
 
         private static Runner _runner;
@@ -40,6 +40,24 @@ namespace SigmaMod
                 if (!ExportAllEntry.Value) return;
                 ExportAllEntry.Value = false;
                 if (_runner != null && !ModelExport.Busy) _runner.StartCoroutine(ModelExport.ExportAll());
+            };
+            ExportPlacesEntry = Config.Bind("Tools", "ExportPlaces", false,
+                "Export every place the terrain generator puts in the world (camps, wrecks, caves...) as a .glb to BepInEx/" + NAME + "-export-places. In a loaded game.");
+            ExportPlacesEntry.Value = false;
+            ExportPlacesEntry.SettingChanged += (s, e) =>
+            {
+                if (!ExportPlacesEntry.Value) return;
+                ExportPlacesEntry.Value = false;
+                if (_runner != null && !ModelExport.Busy) _runner.StartCoroutine(ModelExport.ExportPlaces());
+            };
+            ExportMaterialsEntry = Config.Bind("Tools", "ExportMaterials", false,
+                "Export every game material and terrain layer as swatches in one .glb to BepInEx/" + NAME + "-export-materials. In a loaded game.");
+            ExportMaterialsEntry.Value = false;
+            ExportMaterialsEntry.SettingChanged += (s, e) =>
+            {
+                if (!ExportMaterialsEntry.Value) return;
+                ExportMaterialsEntry.Value = false;
+                if (_runner != null && !ModelExport.Busy) _runner.StartCoroutine(ModelExport.ExportMaterials());
             };
             HotReloadEntry = Config.Bind("Tools", "HotReload", false,
                 "Rebuild templates when their .glb or .json changes and swap spawned copies. For modding.");

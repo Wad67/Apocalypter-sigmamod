@@ -26,6 +26,7 @@
     <Reference Include="UnityEngine"><HintPath>$(ManagedDir)/UnityEngine.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(ManagedDir)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.PhysicsModule"><HintPath>$(ManagedDir)/UnityEngine.PhysicsModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.TerrainModule"><HintPath>$(ManagedDir)/UnityEngine.TerrainModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(ManagedDir)/UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.ImageConversionModule"><HintPath>$(ManagedDir)/UnityEngine.ImageConversionModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.VehiclesModule"><HintPath>$(ManagedDir)/UnityEngine.VehiclesModule.dll</HintPath><Private>false</Private></Reference>
@@ -35,6 +36,8 @@
     <Reference Include="NWH.VehiclePhysics2"><HintPath>$(ManagedDir)/NWH.VehiclePhysics2.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="NWH.WheelController"><HintPath>$(ManagedDir)/NWH.WheelController.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="NWH.Common"><HintPath>$(ManagedDir)/NWH.Common.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="MapMagic"><HintPath>$(ManagedDir)/MapMagic.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Den.Tools"><HintPath>$(ManagedDir)/Den.Tools.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="PlayMaker"><HintPath>$(ManagedDir)/PlayMaker.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
   <ItemGroup>

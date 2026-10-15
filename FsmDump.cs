@@ -33,6 +33,8 @@ namespace SigmaMod
             catch (Exception e) { Plugin.Log.LogError("FSM dump failed: " + e); }
             try { PrefabDump.Write(); }
             catch (Exception e) { Plugin.Log.LogError("vehicle dump failed: " + e); }
+            try { GraphDump.Write(); }
+            catch (Exception e) { Plugin.Log.LogError("MapMagic graph dump failed: " + e); }
         }
 
         private static void Write()

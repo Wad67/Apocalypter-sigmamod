@@ -81,8 +81,10 @@ one gets binned and the log bitches about it.
 | Setting | Default | |
 |---|---|---|
 | `Tools.ExportAll` | off | A button. Flip it on, every game object gets exported, it flips itself off. Takes minutes and the game locks up solid until it's done. It hasn't crashed. Leave it alone. |
+| `Tools.ExportPlaces` | off | Another button, separate from that one. In a loaded game: every place the terrain generator puts down (camps, wrecks, caves, buildings, and the rocks and dry shrubs while it's at it) goes to `BepInEx/SigmaMod-export-places/` as `.glb` + `.fsm.json`. Each root says which outputs place it (`poi_in`), and `outputs.txt` lists them all. Run `tools/fill.sh` on them for the real meshes. |
+| `Tools.ExportMaterials` | off | Button three. In a loaded game: every game material and every terrain layer as a flat swatch in `BepInEx/SigmaMod-export-materials/materials.glb`, named after it, `materials.txt` listing the lot. Append the materials in Blender, slap them on your own meshes, and the game uses its own material back. |
 | `Tools.HotReload` | off | For modding. Save the `.glb` or `.json` and within a second the template is rebuilt and every spawned copy swapped in place, fitted parts moved over. No save/load dance through Easy Save's molasses. A broken save or a `.json` typo keeps the old version and says why in the log. The car you're sitting in swaps when you get out. Code changes still need a restart. |
-| `Debug.VerboseLog` | off | Log spam, plus FSM and vehicle dumps in `BepInEx/`. |
+| `Debug.VerboseLog` | off | Log spam, plus FSM, vehicle and terrain graph dumps in `BepInEx/`. |
 
 ## Making one
 
@@ -125,6 +127,10 @@ one gets binned and the log bitches about it.
   (handbrake, gear lever) don't; the log names them.
 - Game materials are used as-is. Delete `es3global` off one in Blender to use your own colours and
   textures.
+- Want a game material on your own mesh? `Tools.ExportMaterials`, append from `materials.glb`, assign.
+  Terrain (sand, cracked sand, cliff, soil...) comes as `terrain <layer>` materials: no Easy Save id, so
+  they carry `terrainLayer` instead and SigmaMod rebuilds them from the layer's textures. Their swatch is
+  one tile big, so UV your mesh so one UV square is that many metres and it matches the ground.
 - Faces are one-sided in game, whatever Blender's *Backface Culling* claims. Give thin panels some
   thickness (Solidify, applied).
 - Driver sits at `DriveTrigger/sitPos`. The seated player (`parts/PlayerModel_Sit`) is skinned: move
@@ -345,6 +351,74 @@ through the hinge's `getParent.vehicle`, then the root's `getFuel`, `getAudio`, 
 
 Added components and FSMs get stable save ids. Templates with no donor don't join world spawning;
 use Apocaspawner or `Spawn`.
+
+## Places (POIs)
+
+`sigma_type = poi` and a `poi` block: the terrain generator puts it in the world, in some of the spots it
+already puts camps, wrecks, caves and buildings. Not extra spots: the map isn't any more cluttered, the
+camp that would have been there just isn't. Same spots every load, every save. A spot that becomes yours
+already has the flat pad and the road the game gives that kind of spot.
+
+```json
+{
+  "my_outpost": {
+    "poi": { "in": "15169460551123206150", "share": 0.15 }
+  },
+  "my_airfield": {
+    "poi": { "in": "14795495755795660805", "share": 0.3,
+             "footprint": { "length": 1200, "width": 45, "shoulder": 40,
+                            "max_grade": 0.015, "max_cut": 4, "headings": 24 } }
+  }
+}
+```
+
+- `in`: which of the game's outputs to steal spots from, by graph node id (a **string**: the numbers
+  are too big for JSON). Several: a list.
+- `share`: how many of that output's spots, 0 to 1. Default: as one more kind of thing in it.
+- `footprint`: for shit that needs proper ground, like a runway. A spot is only taken if the
+  footprint (length along the model's +Z, or X with `"along": "x"`, width across) fits the ground already there: a straight
+  grade no steeper than `max_grade`, no point more than `max_cut` metres off it, all of it inside one
+  tile. Origin not in the middle of it (the gate's at one end)? `"center": [x, z]` says where its middle is, in the
+  model's own space. Easier: `"bounds": "<object>"`, a plane or box in the model marking the site out; its size,
+  long axis and middle become the footprint (anything you give yourself wins), and it isn't drawn. Tried at
+  `headings` headings, the one needing the least digging wins and the model is turned
+  to it. Then the ground under the whole footprint is graded to that grade, flat across, and eased back into
+  the land over the `shoulder`. No fit: the camp stays. Mountains don't get runways.
+
+The outputs (from `BepInEx/SigmaMod-mapmagic-graph.txt`, written with `Debug.VerboseLog`):
+
+| `in` | What the game puts there | Pad | Roads |
+|---|---|---|---|
+| `14795495755795660805` | Camps 1, 2, 3, 5, 8, 9, 11, 16 | 30 m | yes |
+| `15169460551123206150` | Camps 4, 6, 10, 12, Buildings 1, 7 | 30 m | yes |
+| `15543463829357723661` | Camps 13, 15, Buildings 2, 3, 5 | 80 m | yes |
+| `15844372674089320462` | Camps 7, 14, Buildings 4, 6 | 80 m | yes |
+| `1575289000812347441` | Camp 16, Wrecks 1, 4, 6, 7, 8, Caves 2, 3 | 50 m | no |
+| `17530240658818727944` | Wrecks 2, 3, 5 | 25 m | no |
+| `14432369946094731313` | Caves 5, 6, 7 | 70 m | no |
+| `16289588021920006162` | Caves 1, 4 | 70 m | no |
+
+Roads lead to the model's origin. Put the gate there, not the middle of the runway.
+
+Want to see what you're replacing, or crib a camp? `Tools.ExportPlaces` dumps every one of them to `.glb`, each
+tagged with the `in` ids that place it.
+
+**The game's working parts** (loot, enemies, map icon, codex entry): they're the game's own prefabs, so
+point at them instead of building them:
+
+```json
+"nodes": {
+  "Loot spots": { "instance": { "fsm": "ItemSpawner", "where": { "minItemNum": 21 }, "as": "loot" } },
+  "loot": { "fsm": { "ItemSpawner": { "minItemNum": 6, "maxItemNum": 10 } } }
+}
+```
+
+`instance` puts a copy of the game prefab that has that FSM (and those FSM values, where there's more
+than one) right before the node, at its spot. The game's spawner takes the object right after it as its
+list of spawn points, so "Loot spots" is an empty with empties under it, and that's where the loot lands.
+`as` names the copy so you can tune it further down. More than one candidate: the log lists them with
+their values so you can pick. The parts in a camp: `ItemSpawner` (loot), the enemy spawner, `codexTrigger`
+(codex), the map icon. Read a camp in the FSM dump for the rest.
 
 ## When it fucks up
 

@@ -352,6 +352,7 @@ namespace SigmaMod
                 else if (mode >= 2f || (mode < 0 && mat.renderQueue >= (int)RenderQueue.Transparent)) g.AlphaMode = "BLEND";
                 if (mat.HasProperty("_Cull") && mat.GetFloat("_Cull") == 0f) g.DoubleSided = true;
 
+                if (ExportExtras.TryGetValue(mat, out var more)) foreach (var kv in more) ex[kv.Key] = kv.Value;
                 g.Extras = ex;
                 M.Materials.Add(g);
                 _s.Materials++;
@@ -625,6 +626,11 @@ namespace SigmaMod
                 var g = _m.Materials[i];
                 var v = Vanilla<Material>(g.Extras);
                 if (v != null) { Res.VanillaMaterials++; return _mats[i] = v; }
+                if (g.Extras != null && g.Extras.TryGetValue("terrainLayer", out var tl) && tl is string layer)
+                {
+                    var lm = TerrainLayerMaterial(layer);
+                    if (lm != null) { Res.VanillaMaterials++; return _mats[i] = lm; }
+                }
 
                 var m = new Material(StandardShader()) { name = g.Name ?? "material" + i };
                 var bc = new Color(g.BaseColor[0], g.BaseColor[1], g.BaseColor[2], 1f).gamma;
@@ -712,6 +718,30 @@ namespace SigmaMod
         }
 
         private static Shader _standard;
+        // Materials made only to be exported, with what identifies them in place of an Easy Save id (a terrain
+        // layer's name): merged into their extras.
+        public static readonly Dictionary<Material, Dictionary<string, object>> ExportExtras = new Dictionary<Material, Dictionary<string, object>>();
+
+        // A terrain layer as a material (extras.terrainLayer): the layer's own textures and surface, the texture once
+        // across the mesh's UVs. Terrain layers have no Easy Save id; the layer asset is known by its name.
+        private static readonly Dictionary<string, Material> TerrainLayerMaterials = new Dictionary<string, Material>();
+        public static Material TerrainLayerMaterial(string layer)
+        {
+            if (TerrainLayerMaterials.TryGetValue(layer, out var have) && have != null) return have;
+            var l = Resources.FindObjectsOfTypeAll<TerrainLayer>().FirstOrDefault(x => x != null && x.name == layer);
+            if (l == null || l.diffuseTexture == null) return null;
+            var m = new Material(StandardShader()) { name = "terrain " + layer, mainTexture = l.diffuseTexture };
+            m.SetFloat("_Metallic", l.metallic);
+            m.SetFloat("_Glossiness", l.smoothness);
+            if (l.normalMapTexture != null)
+            {
+                m.SetTexture("_BumpMap", l.normalMapTexture);
+                m.SetFloat("_BumpScale", l.normalScale);
+                m.EnableKeyword("_NORMALMAP");
+            }
+            return TerrainLayerMaterials[layer] = m;
+        }
+
         public static Shader StandardShader()
         {
             if (_standard != null) return _standard;
