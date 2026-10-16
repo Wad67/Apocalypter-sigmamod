@@ -625,7 +625,17 @@ namespace SigmaMod
                 if (_mats.TryGetValue(i, out var have)) return have;
                 var g = _m.Materials[i];
                 var v = Vanilla<Material>(g.Extras);
-                if (v != null) { Res.VanillaMaterials++; return _mats[i] = v; }
+                if (v != null)
+                {
+                    // the game's material while the model still shows its texture; given another image in Blender, a
+                    // copy of it (its shader, normal map, gloss) with that image
+                    var img = g.BaseColorImage >= 0 ? _m.Images[g.BaseColorImage] : null;
+                    if (img == null || IsTexture(img.Name, v.mainTexture)) { Res.VanillaMaterials++; return _mats[i] = v; }
+                    var own = new Material(v) { name = g.Name ?? v.name };
+                    var tex = Tex(g.BaseColorImage, false, null);
+                    if (tex != null) own.mainTexture = tex;
+                    return _mats[i] = own;
+                }
                 if (g.Extras != null && g.Extras.TryGetValue("terrainLayer", out var tl) && tl is string layer)
                 {
                     var lm = TerrainLayerMaterial(layer);
@@ -671,6 +681,16 @@ namespace SigmaMod
                 if (g.AlphaMode == "MASK") StandardMode(m, 1, g.AlphaCutoff);
                 else if (g.AlphaMode == "BLEND") StandardMode(m, 2, 0f);
                 return _mats[i] = m;
+            }
+
+            // an image named as the texture is, or as an export names its file of it (<texture>_<8 hex digits>)
+            private static bool IsTexture(string image, Texture t)
+            {
+                if (t == null || string.IsNullOrEmpty(image)) return t == null;
+                if (image == t.name) return true;
+                int u = image.LastIndexOf('_');
+                return u > 0 && image.Length - u - 1 == 8 && image.Substring(0, u) == t.name
+                    && image.Substring(u + 1).All(c => Uri.IsHexDigit(c));
             }
 
             private Material _default;

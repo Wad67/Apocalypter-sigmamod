@@ -202,7 +202,7 @@ namespace SigmaMod
                     else Plugin.Log.LogWarning($"{where}: 'fsm' must be an object");
                     continue;
                 }
-                if (Reserved.Contains(kv.Key)) continue;
+                if (Reserved.Contains(kv.Key) || Array.IndexOf(CustomPrefabs.ScriptOnly, kv.Key) >= 0) continue;
                 Component comp = go.GetComponents<Component>().FirstOrDefault(c => c != null && (c.GetType().Name == kv.Key || c.GetType().FullName == kv.Key));
                 if (comp == null) { Plugin.Log.LogWarning($"{where}: no {kv.Key} on '{go.name}' (add it with \"add\")"); continue; }
                 if (!(kv.Value is Dictionary<string, object> fields)) { Plugin.Log.LogWarning($"{where}/{kv.Key}: must be an object"); continue; }

@@ -201,11 +201,19 @@ namespace SigmaMod
 
         private static bool Prefix(HutongGames.PlayMaker.Actions.ArrayListGetRandom __instance)
         {
-            if (SpawnLists.Weights.Count == 0 || Proxy == null) return true;
+            if (Proxy == null) return true;
             try
             {
                 var list = (Proxy.GetValue(__instance) as PlayMakerArrayListProxy)?.arrayList;
                 if (list == null || list.Count == 0) return true;
+                if (StarterKits.Chosen(__instance, list) is int chosen)
+                {
+                    __instance.randomIndex.Value = chosen;
+                    if (!PlayMakerUtils.ApplyValueToFsmVar(__instance.Fsm, __instance.randomItem, list[chosen]))
+                        __instance.Fsm.Event(__instance.failureEvent);
+                    return false;
+                }
+                if (SpawnLists.Weights.Count == 0) return true;
                 var w = new double[list.Count];
                 double total = 0;
                 bool weighted = false;

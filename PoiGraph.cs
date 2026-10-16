@@ -41,6 +41,8 @@ namespace SigmaMod
         public float Length, Width, Shoulder, MaxGrade, MaxCut;
         public int Headings = 24;   // headings tried, over half a turn (a footprint fits both ways round)
         public bool AlongX;         // its length along the model's X, not Z (the model turns 90 degrees less)
+        public float Ground;              // the ground's level from the model's origin (footprint ground): cut to it, and the
+                                         // model raised by as much so it stands on it
         public float CenterX, CenterZ;   // the footprint's centre in the model's own space (its origin, where roads
                                          // arrive, need not be in the middle)
 
@@ -123,7 +125,7 @@ namespace SigmaMod
             }
         }
 
-        // the best heading for a footprint at a place: a straight grade along it (height a at the origin, rising b per
+        // the best heading for a footprint at a place: a straight grade along it (height a at the footprint's centre, rising b per
         // metre along forward) within the limits, with the least cut and fill; false if none
         private static bool Fit(TileData data, Transition trs, MatrixWorld heights, PoiTemplate t, out float heading, out float a, out float b)
         {
@@ -223,7 +225,18 @@ namespace SigmaMod
             {
                 if (d.Which[i] != Template) continue;
                 var trs = places.arr[i];
-                trs.rotation = Quaternion.Euler(0f, Plan.Templates[Template].Yaw(d.Heading[i]), 0f);
+                // turned to its heading, and tilted to the grade the ground is cut to, so it lies on it end to end
+                // (level, it would sit on the ground at its origin only, grade x distance off it everywhere else)
+                float rad = d.Heading[i] * Mathf.Deg2Rad;
+                var forward = new Vector3(Mathf.Sin(rad), 0f, Mathf.Cos(rad));
+                // built from the two frames (FromToRotation takes a small grade's angle for none)
+                var rising = new Vector3(forward.x, d.Slope[i], forward.z).normalized;
+                var right = new Vector3(forward.z, 0f, -forward.x);
+                var tilt = Quaternion.LookRotation(rising, Vector3.Cross(rising, right)) * Quaternion.Inverse(Quaternion.LookRotation(forward, Vector3.up));
+                trs.rotation = tilt * Quaternion.Euler(0f, Plan.Templates[Template].Yaw(d.Heading[i]), 0f);
+                // MapMagic puts it on the ground at its origin, which is cut to its ground level: up by as much again
+                trs.pos.y -= Plan.Templates[Template].Ground;
+                Plugin.Verbose($"POIs: '{Plan.Templates[Template].Id}' placed at ({trs.pos.x:0.0}, {trs.pos.y:0.00}, {trs.pos.z:0.0}) on a {(data.isDraft ? "draft" : "full")} tile, heading {d.Heading[i]:0}, grade {d.Slope[i] * 100f:+0.00;-0.00} %, graded centre {d.Height[i]:0.00} m");
                 taken.Add(trs);
             }
             data.StoreProduct(this, taken);
@@ -260,15 +273,15 @@ namespace SigmaMod
                 if (d.Which[i] != Template) continue;
                 if (graded == null) graded = new MatrixWorld(src);
                 var centre = places.arr[i].pos + t.Offset(d.Heading[i]);
-                int changed = Grade(graded, centre, d.Heading[i], d.Height[i], d.Slope[i], t);
+                int changed = Grade(graded, centre, d.Heading[i], d.Height[i] + t.Ground, d.Slope[i], t);
                 sites++;
                 if (Plugin.VerboseLogEntry.Value)
                 {
                     float sc = src.worldSize.y;
                     Plugin.Verbose($"POIs: '{t.Id}' graded at ({centre.x:0}, {centre.z:0}) on a {(data.isDraft ? "draft" : "full")} tile: centre {src.GetWorldInterpolatedValue(centre.x, centre.z) * sc:0.0} m -> " +
-                                   $"{graded.GetWorldInterpolatedValue(centre.x, centre.z) * sc:0.0} m (aimed {d.Height[i]:0.0} m), {changed} pixels; matrix at ({src.worldPos.x:0}, {src.worldPos.z:0}) " +
+                                   $"{graded.GetWorldInterpolatedValue(centre.x, centre.z) * sc:0.0} m (aimed {d.Height[i] + t.Ground:0.0} m), {changed} pixels; matrix at ({src.worldPos.x:0}, {src.worldPos.z:0}) " +
                                    $"size {src.worldSize.x:0} x {src.worldSize.z:0} x {src.worldSize.y:0}, {src.rect.size.x} px");
-                    lock (Graded) Graded.Add((centre, d.Heading[i], d.Height[i], d.Slope[i], t.Id));
+                    lock (Graded) Graded.Add((centre, d.Heading[i], d.Height[i] + t.Ground, d.Slope[i], t.Id));
                 }
             }
             data.StoreProduct(this, graded ?? src);
@@ -379,7 +392,8 @@ namespace SigmaMod
                     mine.instantiateClones = output.instantiateClones;
                     mine.outputLevel = output.outputLevel;
                     mine.objHeight = true; mine.relativeHeight = true;
-                    mine.useRotation = true; mine.rotateYonly = true; mine.takeTerrainNormal = false; mine.regardPrefabRotation = false;
+                    // PoiTake's rotation as it is: the heading and the tilt of the grade
+                    mine.useRotation = true; mine.rotateYonly = false; mine.takeTerrainNormal = false; mine.regardPrefabRotation = false;
                     mine.useScale = false;
                     g.Link(take, mine);
 

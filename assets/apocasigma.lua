@@ -8,4 +8,8 @@ template "sigma_chassis" {
     ["powertrain.differentials.0.stiffness"] = 1,
   },
   drive = "rear",
+  -- where the Outrider spawns, and where the Poloska does: the starter camp among them
+  spawn_like = { "1335052897901121881", "6132430150351803222" },
+  -- which comes with its own engine, an AKMS and two cigars to start with
+  starter = { "astron_4g52", "akms", "cigar", "cigar" },
 }

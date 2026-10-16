@@ -378,7 +378,8 @@ already has the flat pad and the road the game gives that kind of spot.
 - `footprint`: for shit that needs proper ground, like a runway. A spot is only taken if the
   footprint (length along the model's +Z, or X with `"along": "x"`, width across) fits the ground already there: a straight
   grade no steeper than `max_grade`, no point more than `max_cut` metres off it, all of it inside one
-  tile. Origin not in the middle of it (the gate's at one end)? `"center": [x, z]` says where its middle is, in the
+  tile. The ground is cut to the model's origin, or to `"ground"`: a height from the origin, or an object whose top is the
+ground (a slab the place stands on); `"raise"` sets the model that many metres above it. The model is tilted to the grade and set on it. Origin not in the middle of it (the gate's at one end)? `"center": [x, z]` says where its middle is, in the
   model's own space. Easier: `"bounds": "<object>"`, a plane or box in the model marking the site out; its size,
   long axis and middle become the footprint (anything you give yourself wins), and it isn't drawn. Tried at
   `headings` headings, the one needing the least digging wins and the model is turned

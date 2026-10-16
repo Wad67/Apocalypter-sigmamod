@@ -49,9 +49,8 @@ in `tools/`.
 
 ## Making an asset
 
-The Blender side is as before (README.old: *Making one*): export, butcher, give the root a `sigma_id` (and
-`sigma_name`; `sigma_type = chassis` for a vehicle built from scratch), export as glTF Binary with custom properties
-on, strip the textures. Then write `<name>.lua` next to `<name>.glb`:
+The Blender side is as before (README.old: *Making one*): export, butcher, export as glTF Binary, strip the textures.
+Nothing needs tagging in Blender: the script says it all. Then write `<name>.lua` next to `<name>.glb`:
 
 ```lua
 -- my_cart.lua: a two-seat cart, everything named as in my_cart.glb
@@ -65,8 +64,32 @@ parts.fuel_tank(g, { tank = "Tank", filler = "Tank Cap", litres = 10, capacity =
 parts.ignition(g, { switch = "Key Switch", fuel = "Tank", engine = "Engine Mount" })
 parts.wheel(g, "Wheel FL", { at = "FL Hub Marker" })   -- and the other three
 
+g.name = "Cart"
 template "my_cart" (g)
 ```
+
+The template's root is the `.glb`'s only root object, or the one named as the template, or `model = "<name>"`. What
+the old custom properties said, the template says (and it wins over any still in the model):
+
+| | |
+|---|---|
+| `name` | What the game calls it (`sigma_name`). |
+| `type` | `"chassis"` (`parts.chassis` sets it), `"poi"` (any template with `poi`). |
+| `spawn`, `spawn_like` | Spawn weight; game prefab ids whose spawn lists it joins (`sigma_spawn`, `sigma_spawn_like`). |
+| `behaviour` | C# behaviours by name, on the root; `nodes = { X = { behaviour = ... } }` on an object. |
+| `nodes = { X = { spawns = "<id>" } }` | In a POI: the empty `X` is a spot where that template spawns (`sigma_place`). |
+| `starter = { ... }` | A starting car's kit (below). |
+
+**A starting car's kit.** The starter camp gives each of the game's starting cars its own kit next to it (the Poloska
+a 594cc engine and a motorcycle radiator, the Junker a 1.2L and a small radiator, the Crossbreed a 594cc and two
+motorcycle wheels). A car template in that camp's list gets the kit of the car it spawns like (its donor, or its first
+`spawn_like`), or its own:
+
+```lua
+g.starter = { "594cc I2 23HP 39Nm Gasoline", "radiator_motorcycle" }   -- game items by name or id, or templates
+```
+
+Each item goes on the camp's kit spots in turn and gets the game's starting fuel, condition and oil.
 
 Load a save (or, with `Tools.HotReload`, just save the script) and it's there. Every name is a Blender object name.
 Anything no part covers can be written straight into the table: `g.nodes["Name"] = { ... }` is an object,
@@ -231,9 +254,24 @@ g.replaces = { "9163650183033119127" }   -- the game's decorative generator mesh
 - `swap`: an object in the place switched off and a copy of another place's object put where it was.
 - `replaces`: the game's own props by their mesh's Easy Save id: switched off (with their sound and collider)
   wherever they are, and a copy spawned in their place.
-- In a POI template, an empty with the custom property `sigma_place = "<sigma_id>"` is a spot.
+- In a POI: `nodes = { ["Gyro spawn"] = { spawns = "gyro_mad_max" } }` makes that empty a spot.
 
-New places of your own (`sigma_type = poi`, `poi = { in = ..., share = ... }`, footprints) are as before (README.old:
+### The game's working parts in a POI
+
+Copy a camp or building out of `Tools.ExportPlaces` into your POI and it works as the game's does. What had an FSM in
+the game (the loot, enemy, critter and car spawners, the map icon, the codex trigger, the lights) is the game's own
+object in your POI, put where you put its copy; its spawn points (the empty that followed it in the game) go with it
+whatever order Blender sorts them into. What has spawned is kept with the save as for the game's camps.
+
+The game's places run every spawner they have. To have only one of some, by chance:
+
+```lua
+one_of = { "EnemySpawn_Wild_V1.007", "CritterSpawn" }          -- Blender names; or { A = 3, B = 1 } weighted
+```
+
+Each POI picks by where it is in the world, so the same one always picks the same.
+
+New places of your own (`poi = { in = ..., share = ... }`, footprints) are as before (README.old:
 *Places*).
 
 ## Hot reload
@@ -254,6 +292,7 @@ terrain: the game is frozen until the ground is back, so nothing standing on it 
 | `Tools.HotReload` | off | Rebuild assets when their files change, and swap spawned copies. For modding. |
 | `Dev.LiveCode` | off | Reload live DLLs when they're rebuilt. For modding. |
 | `Debug.VerboseLog` | off | Log spam, plus FSM, vehicle and terrain graph dumps in `BepInEx/`. |
+| `Debug.StarterCar` | empty | The starting car of a new game: a template's id (`sigma_chassis`) or a game car's name (`Junker`). Empty is the game's random pick. A name that isn't on the starter list is logged with the ones that are. |
 
 ## For mod authors
 
@@ -263,7 +302,7 @@ terrain: the game is frozen until the ground is back, so nothing standing on it 
 
 | | |
 |---|---|
-| `CustomPrefabs.RegisterBehaviour(name, (obj, props, info) => ...)` | Code for objects tagged `sigma_behaviour = name` in Blender, on every copy. |
+| `CustomPrefabs.RegisterBehaviour(name, (obj, props, info) => ...)` | Code for objects given `behaviour = name` in the script (`sigma_behaviour` in Blender), on every copy. |
 | `CustomPrefabs.Instantiated` | Fires for every new copy. |
 | `CustomPrefabs.All`, `Find(id)`, `TryGet(obj, out info)` | Loaded templates, and which one an object belongs to. |
 | `CustomPrefabs.Spawn(info, position, rotation)` | Spawn a saved copy. |

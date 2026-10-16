@@ -44,6 +44,7 @@ local WC = "NWH.WheelController3D.WheelController"
 function parts.chassis(o)
   o = o or {}
   local g = {
+    type = "chassis",
     layer = 8, tag = "Vehicle",
     add = { "Rigidbody", "VehicleController" },
     Rigidbody = { mass = o.mass or 500 },

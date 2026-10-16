@@ -159,7 +159,7 @@ namespace SigmaMod
             try { list = Get(path, mgr); }
             catch (Exception e) { Plugin.Log.LogError("custom prefab " + path + ": " + e); return new List<Info>(); }
             if (list.Count == 0)
-                Plugin.Log.LogWarning($"custom prefab: {src.Mod}/{Path.GetFileName(path)}: nothing loaded (no root object with {IdKey}; was Include > Custom Properties on in the export?)");
+                Plugin.Log.LogWarning($"custom prefab: {src.Mod}/{Path.GetFileName(path)}: nothing loaded (no template in its script for a root object, and no root object with {IdKey})");
             foreach (var t in list) { t.Mod = src.Mod; Register(t, mgr); }
             return list;
         }
@@ -232,6 +232,77 @@ namespace SigmaMod
 
         private static string JsonPath(string glb) => Path.ChangeExtension(glb, ".json");
 
+        // A script's template carries what the model's custom properties would, so nothing needs tagging in Blender.
+        // Its root object: "model" (a root object's name), else the root with that sigma_id, else the root named as the
+        // template, else the file's only root. On it, from the template: name, type ("poi" when it has "poi"), spawn,
+        // spawn_like, behaviour. Below it, from a "nodes" entry: behaviour, and spawns (the template an empty is a spot
+        // of). What the script says wins over the model's own properties.
+        private static readonly string[,] ScriptKeys = { { "name", NameKey }, { "type", TypeKey }, { "spawn", SpawnKey }, { "spawn_like", SpawnLikeKey }, { "behaviour", BehaviourKey } };
+        internal static readonly string[] ScriptOnly = { "model", "name", "type", "spawn", "spawn_like", "behaviour", "spawns", "one_of", StarterKits.Key };
+
+        private static void ScriptProperties(GltfModel m, Dictionary<string, object> doc, string path)
+        {
+            string file = Path.GetFileName(Lua.ScriptPath(path));
+            var claimed = new HashSet<int>();
+            foreach (var kv in doc)
+            {
+                if (!(kv.Value is Dictionary<string, object> spec) || kv.Key == "fsms" || kv.Key == "states" || kv.Key == "actions") continue;
+                int root = ScriptRoot(m, kv.Key, spec, claimed, out string why);
+                if (root < 0) { Plugin.Log.LogWarning($"{file}: template '{kv.Key}': {why}"); continue; }
+                claimed.Add(root);
+                var ex = ExtrasOf(m.Nodes[root]);
+                ex[IdKey] = kv.Key;
+                for (int k = 0; k < ScriptKeys.GetLength(0); k++)
+                    if (spec.TryGetValue(ScriptKeys[k, 0], out var v) && v != null) ex[ScriptKeys[k, 1]] = Text(v, ScriptKeys[k, 1]);
+                if (!spec.ContainsKey("type") && spec.ContainsKey("poi")) ex[TypeKey] = "poi";
+                if (!(spec.TryGetValue("nodes", out var nv) && nv is Dictionary<string, object> nodes)) continue;
+                foreach (var nk in nodes)
+                {
+                    if (!(nk.Value is Dictionary<string, object> ns)) continue;
+                    bool spot = ns.TryGetValue("spawns", out var sp), beh = ns.TryGetValue("behaviour", out var bv);
+                    if (!spot && !beh) continue;
+                    int i = Below(m, root, nk.Key);
+                    if (i < 0 || i == root) { Plugin.Log.LogWarning($"{file}: {kv.Key}: nodes: no object named '{nk.Key}' below the root"); continue; }
+                    var nex = ExtrasOf(m.Nodes[i]);
+                    if (spot) nex[Places.PlaceKey] = Convert.ToString(sp, System.Globalization.CultureInfo.InvariantCulture);
+                    if (beh) nex[BehaviourKey] = Text(bv, BehaviourKey);
+                }
+            }
+        }
+
+        // a list as the comma-separated text the property takes; spawn and spawn_like read lists themselves
+        private static object Text(object v, string key) =>
+            v is List<object> l && key != SpawnLikeKey
+                ? string.Join(", ", l.Select(x => Convert.ToString(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray()) : v;
+
+        private static int ScriptRoot(GltfModel m, string id, Dictionary<string, object> spec, HashSet<int> claimed, out string why)
+        {
+            why = null;
+            var names = string.Join(", ", m.Roots.Select(r => "'" + m.Nodes[r].Name + "'").ToArray());
+            if (spec.TryGetValue("model", out var mv) && mv is string model)
+            {
+                foreach (int r in m.Roots) if (m.Nodes[r].Name == model) return r;
+                why = $"no root object named '{model}' (roots: {names})";
+                return -1;
+            }
+            foreach (int r in m.Roots)
+                if (m.Nodes[r].Extras != null && m.Nodes[r].Extras.TryGetValue(IdKey, out var iv) && iv is string s && s.Trim() == id) return r;
+            foreach (int r in m.Roots) if (m.Nodes[r].Name == id) return r;
+            var free = m.Roots.Where(r => !claimed.Contains(r)).ToList();
+            if (m.Roots.Count == 1 && free.Count == 1) return free[0];
+            why = $"which root object is it? Say model = \"<name>\" (roots: {names})";
+            return -1;
+        }
+
+        private static int Below(GltfModel m, int i, string name)
+        {
+            if (m.Nodes[i].Name == name) return i;
+            foreach (int c in m.Nodes[i].Children) { int f = Below(m, c, name); if (f >= 0) return f; }
+            return -1;
+        }
+
+        private static Dictionary<string, object> ExtrasOf(GNode n) => n.Extras ?? (n.Extras = new Dictionary<string, object>());
+
         // The .json's shorthand expanded to the long form (Shorthand.cs). With VerboseLog the long form is written to
         // BepInEx/SigmaMod-expanded/<mod>/<file>.json, and checked to expand to itself, so it loads the same.
         private static Dictionary<string, object> ExpandShorthand(Dictionary<string, object> doc, string path)
@@ -270,10 +341,12 @@ namespace SigmaMod
                     catch (Exception e) { throw new Exception($"{Path.GetFileName(JsonPath(path))}: {e.Message}"); }
                     if (overrides != null) overrides = ExpandShorthand(overrides, path);
                 }
-                // the asset's script: its entries over the .json's
+                // the asset's script: its entries over the .json's; it says which root each template is, and what
+                // Blender's custom properties would
                 if (File.Exists(Lua.ScriptPath(path)))
                 {
                     var doc = ExpandShorthand(Lua.Document(path), path);
+                    ScriptProperties(model, doc, path);
                     if (overrides == null) overrides = doc;
                     else foreach (var kv in doc) overrides[kv.Key] = kv.Value;
                 }
@@ -487,7 +560,7 @@ namespace SigmaMod
             // A root with no children is a variant: the game prefab as it is, with its own id, name and .json
             // values. Otherwise the template is applied object by object.
             bool variant = donor != null && model.Nodes[root].Children.Count == 0 && model.Nodes[root].Mesh < 0;
-            var a = new Applier(model, es3, byId, prefabId, mgr, t.NodeExtras);
+            var a = new Applier(model, es3, byId, prefabId, mgr, t.NodeExtras) { Scratch = donor == null };
             if (variant)
             {
                 if (es3.localRefs.TryGetValue(go, out long variantRoot)) t.NodeExtras[variantRoot] = rootEx;
@@ -521,6 +594,10 @@ namespace SigmaMod
             var ctx = new JsonValues { Root = go, Node = Node, AddNode = (n, g) => a.Named[n] = g, Dir = Path.GetDirectoryName(path), Mgr = mgr, Library = library,
                                        Created = new List<KeyValuePair<string, UnityEngine.Object>>() };
 
+            // a POI's working parts: the game's own objects in place of their copies in the export
+            if (donor == null && rootEx.TryGetValue(TypeKey, out var ptv) && string.Equals(ptv as string, "poi", StringComparison.OrdinalIgnoreCase))
+                PlaceParts.Build(go, t, a.Named, mgr, ctx, overrides, where);
+
             // components and FSMs the .json adds; what it adds gets save ids like everything else
             if (overrides != null)
             {
@@ -538,6 +615,7 @@ namespace SigmaMod
                     counts[key] = k + 1;
                     es3.localRefs[c] = StableId(prefabId + "/json/" + key + "/" + k);
                 }
+
             }
 
             string type = rootEx.TryGetValue(TypeKey, out var tv) ? tv as string : null;
@@ -552,7 +630,7 @@ namespace SigmaMod
                 NewChassis(go, id, overrides);
                 resetValues = ValueReport.Snapshot(go);
             }
-            else if (poi) t.Spawns = false;   // placed by the terrain generator (Poi), not by spawn lists
+            else if (poi) { t.Spawns = false; if (go.GetComponent<PoiProbe>() == null) go.AddComponent<PoiProbe>(); }   // placed by the terrain generator (Poi), not by spawn lists
             else if (type != null) Plugin.Log.LogWarning($"custom prefab: '{id}': unknown {TypeKey} '{type}'");
 
             if (overrides != null) Overrides.Apply(go, overrides, Node, ctx, where);
@@ -755,6 +833,8 @@ namespace SigmaMod
             public string Stats => $"{_mapped} objects mapped, {_added} added, {_skipped} skipped (fitted parts, runtime objects), " +
                                    $"colliders {_collidersMapped} mapped, {_collidersAdded} added, {_hidden} donor renderers hidden, {_disabled} donor colliders disabled";
             private int _hidden, _disabled;
+            // no donor: objects copied from the game's exports are built like any other (a place's building in a POI)
+            public bool Scratch;
 
             private readonly Dictionary<long, Dictionary<string, object>> _nodeExtras;
             // template objects by Blender object name
@@ -801,7 +881,7 @@ namespace SigmaMod
                 {
                     if (ex.ContainsKey("es3prefab")) { _skipped++; return; } // a fitted part or cargo: its own prefab
                     target = Mapped<GameObject>(ex);
-                    if (target == null && FromGame(ex)) { _skipped++; return; } // runtime object the donor prefab lacks
+                    if (target == null && FromGame(ex) && !Scratch) { _skipped++; return; } // runtime object the donor prefab lacks
                     if (target == null)
                     {
                         target = new GameObject(n.Name ?? "node" + i);
@@ -891,7 +971,7 @@ namespace SigmaMod
                 string shape = ex.TryGetValue("shape", out var sv) ? sv as string : "box";
                 bool trigger = ex.TryGetValue("trigger", out var tv) && tv is bool tb && tb;
                 var c = Mapped<Collider>(ex);
-                if (c == null && FromGame(ex)) { _skipped++; return; }
+                if (c == null && FromGame(ex) && !Scratch) { _skipped++; return; }
                 var center = new Vector3(n.T[0], n.T[1], n.T[2]);
                 var size = new Vector3(n.S[0], n.S[1], n.S[2]);
                 bool rotated = Quaternion.Angle(Quaternion.identity, new Quaternion(n.R[0], n.R[1], n.R[2], n.R[3])) > 0.1f;
@@ -987,6 +1067,24 @@ namespace SigmaMod
                 bool listed = AddToList(go, t.IsVehicle ? "ArrayList_Cars" : "ArrayList_Items");
                 go.transform.SetParent(null, true);
                 Plugin.Verbose($"custom prefab: spawned {go.name} at {position}, " + (listed ? "saved with the game" : "NOT saved (save list not found)"));
+                return go;
+            }
+            finally { UnityEngine.Object.Destroy(staging); }
+        }
+
+        // a game item spawned as the game's spawners spawn one (its name numbered, saved with the game's items)
+        public static GameObject SpawnItem(GameObject prefab, Vector3 position, Quaternion rotation)
+        {
+            if (prefab == null) return null;
+            var staging = new GameObject(Plugin.NAME + " staging");
+            staging.SetActive(false);
+            try
+            {
+                var go = UnityEngine.Object.Instantiate(prefab, position, rotation, staging.transform);
+                int n = NextNameId();
+                go.name = prefab.name + "(Clone)" + (n < 0 ? "" : n.ToString());
+                AddToList(go, "ArrayList_Items");
+                go.transform.SetParent(null, true);
                 return go;
             }
             finally { UnityEngine.Object.Destroy(staging); }

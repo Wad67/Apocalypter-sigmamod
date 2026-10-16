@@ -15,13 +15,14 @@ namespace SigmaMod
     {
         public const string GUID = "com.burner.apocalypter.sigmamod";
         public const string NAME = "SigmaMod";
-        public const string VERSION = "2.0.0";
+        public const string VERSION = "2.1.0";
 
         public static ManualLogSource Log;
         public static ConfigEntry<bool> VerboseLogEntry;
         public static ConfigEntry<bool> ExportAllEntry, ExportPlacesEntry, ExportMaterialsEntry;
         public static ConfigEntry<bool> HotReloadEntry;
         public static ConfigEntry<bool> LiveCodeEntry;
+        public static ConfigEntry<string> StarterCarEntry;
 
         private static Runner _runner;
 
@@ -32,6 +33,7 @@ namespace SigmaMod
             // opt in to the Apocasetter Mods window (the entry itself is hidden there)
             Config.Bind("General", "Apocasetter", true, "Show in the Apocasetter Mods menu.");
             VerboseLogEntry = Config.Bind("Debug", "VerboseLog", false, "Extra diagnostics, an FSM dump and a vehicle dump in BepInEx.");
+            StarterCarEntry = Config.Bind("Debug", "StarterCar", "", "The starting car of a new game (a template id or a game car's name); empty: random.");
             ExportAllEntry = Config.Bind("Tools", "ExportAll", false,
                 "Export every game object as a .glb template to BepInEx/" + NAME + "-export. Takes several minutes; the game freezes until it finishes.");
             // a button: switching it on starts one export and switches it back off

@@ -24,7 +24,8 @@ namespace SigmaMod
     // (a scene object such as the starter camp, Starter_Area), "at" where it goes in the place's export as Blender
     // shows it (x, y, z; z up), "turn" its turn about Blender's z, degrees. A spawned copy settles onto whatever is
     // under the spot (within a few metres; "ground": false keeps it where it is put). In a POI template: an empty
-    // with the custom property sigma_place = "<template sigma_id>" is a spot, posed as the empty is.
+    // with the custom property sigma_place = "<template sigma_id>" is a spot, posed as the empty is (in a script:
+    // nodes = { ["<object>"] = { spawns = "<template sigma_id>" } }).
     //
     // "swap": { "<object in the place>": "<place>/<object>" } on a spot: the place's object (a path below the place)
     // is switched off and a copy of the other place's object put where it was (a fire-in-a-can light swapped for an

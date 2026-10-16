@@ -28,7 +28,9 @@ namespace SigmaMod
     //             turn, default 24), along ("z", default, or "x": which of the model's axes the length runs on), center ([x, z]
     //             in the model's own space: where the footprint's middle is, default the origin), bounds (an
     //             object of the model whose mesh marks the site out: length, width, along and centre from it, where
-    //             not given; the object isn't drawn).
+    //             not given; the object isn't drawn), ground (the level the ground is cut to, from the model's origin:
+    //             metres, or an object whose top it is, such as a slab the model stands on; default the origin), raise (m the
+    //             model stands above that ground).
     //             Only places where it fits
     //             take it, turned to the heading that fits best, and the ground is graded to it.
     //
@@ -116,6 +118,8 @@ namespace SigmaMod
                             CenterX = Pair(footprint, "center", 0), CenterZ = Pair(footprint, "center", 1),
                         };
                         if (footprint.TryGetValue("bounds", out var bv) && bv is string bname) FromBounds(t, bname, footprint, tpl);
+                        if (footprint.TryGetValue("ground", out var gv)) GroundOf(t, gv, tpl);
+                        tpl.Ground -= Num(footprint, "raise", 0f);   // the model that much above its ground
                         if (!plans.TryGetValue(fid, out var plan)) plans[fid] = plan = new PoiPlan { Output = fid, Templates = new PoiTemplate[0], Share = -1 };
                         plan.Templates = plan.Templates.Concat(new[] { tpl }).ToArray();
                         if (share.HasValue) plan.Share = Math.Max(plan.Share, share.Value);   // else worked out below
@@ -178,6 +182,25 @@ namespace SigmaMod
         // A footprint from a node of the model (a plane or box marking the site out): its mesh's extent in the model's
         // own space gives the length (the longer side, which also sets along), width and centre, where the .json
         // doesn't give them; the node isn't drawn (it only marks the site out)
+        // the ground the model stands on, from its origin: a height (m), or an object whose top it is (a slab under it)
+        private static void GroundOf(CustomPrefabs.Info t, object v, PoiTemplate tpl)
+        {
+            if (v is double d) { tpl.Ground = (float)d; return; }
+            var root = t.Prefab.transform;
+            var node = v is string name ? root.GetComponentsInChildren<Transform>(true).FirstOrDefault(x => x.name == name) : null;
+            var mf = node != null ? node.GetComponent<MeshFilter>() : null;
+            if (mf == null || mf.sharedMesh == null) { Plugin.Log.LogWarning($"POI '{t.Id}': footprint ground '{v}': no object of that name with a mesh"); return; }
+            var b = mf.sharedMesh.bounds;
+            float top = float.MinValue;
+            for (int i = 0; i < 8; i++)
+            {
+                var c = new Vector3((i & 1) == 0 ? b.min.x : b.max.x, (i & 2) == 0 ? b.min.y : b.max.y, (i & 4) == 0 ? b.min.z : b.max.z);
+                top = Mathf.Max(top, root.InverseTransformPoint(node.TransformPoint(c)).y);
+            }
+            tpl.Ground = top;
+            Plugin.Log.LogInfo($"POI '{t.Id}': its ground is the top of '{node.name}', {top:0.00} m from its origin");
+        }
+
         private static void FromBounds(CustomPrefabs.Info t, string name, Dictionary<string, object> footprint, PoiTemplate tpl)
         {
             var root = t.Prefab.transform;
