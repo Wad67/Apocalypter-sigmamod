@@ -58,6 +58,7 @@ namespace SigmaMod
 
         private static Group[] _groups = new Group[0];
         private static bool _subscribed, _built;
+        private static string _plan;
         private static int _tiles;
 
         // on the main thread, after the templates are loaded: which outputs give places to which POIs
@@ -65,10 +66,17 @@ namespace SigmaMod
         {
             var pois = CustomPrefabs.All.Where(t => string.Equals(t.Type, "poi", StringComparison.OrdinalIgnoreCase) && t.Prefab != null).ToList();
             var mm = Resources.FindObjectsOfTypeAll<MapMagicObject>().FirstOrDefault(m => m.gameObject.scene.IsValid());
+            // nothing about the POIs changed (another asset was rebuilt): the world stays as it is. Planning again
+            // regrades the graph and regenerates every tile, which takes the places away for a moment and drops
+            // everything standing in them.
+            string signature = (mm != null ? mm.GetInstanceID().ToString() : "-") + "|" + string.Join("|", pois.Select(t =>
+                t.Id + "#" + t.Prefab.GetInstanceID() + "#" + (t.Spec != null && t.Spec.TryGetValue("poi", out var ps) ? Json.Write(ps) : "")).ToArray());
+            if (signature == _plan) return;
+            _plan = signature;
             if (pois.Count == 0)
             {
                 _groups = new Group[0];
-                if (mm != null && mm.graph != null) { PoiGraph.Build(mm, new List<PoiPlan>()); if (_built) mm.Refresh(true); }
+                if (mm != null && mm.graph != null) { PoiGraph.Build(mm, new List<PoiPlan>()); if (_built) Regenerate(mm); }
                 _built = false;
                 return;
             }
@@ -158,7 +166,7 @@ namespace SigmaMod
                 }
             bool changed = PoiGraph.Build(mm, plans.Values.ToList());
             // tiles made before the POIs were known (or the graph changed) are made again
-            if (changed || _built || _groups.Length > 0) mm.Refresh(true);
+            if (changed || _built || _groups.Length > 0) Regenerate(mm);
             _built = changed || _groups.Length > 0;
             if (!_subscribed)
             {
@@ -207,7 +215,7 @@ namespace SigmaMod
             else if (v is List<object> list) foreach (var x in list) foreach (var y in Ids(x)) yield return y;
         }
 
-        private static IEnumerable<Generator> AllGenerators(Graph g, HashSet<Graph> seen)
+        internal static IEnumerable<Generator> AllGenerators(Graph g, HashSet<Graph> seen)
         {
             if (g == null || !seen.Add(g)) yield break;
             foreach (var gen in g.generators)
@@ -263,6 +271,43 @@ namespace SigmaMod
                     Plugin.Verbose($"POIs: {moved} place(s) on a tile went to POIs ({_tiles} tiles so far)");
             }
             catch (Exception e) { Plugin.Log.LogError("POIs: " + e.Message); }
+        }
+
+        // ---------------------------------------------------------------- regenerating the world, frozen
+        // Regenerating takes every tile's ground away for a moment; anything standing on it in a running game falls
+        // through. In play the game is frozen (time stopped: physics, vehicles, FSMs' waits) until the terrain is back:
+        // no tile generating for half a second, at least a second after it began (at most 90 s). While the game loads,
+        // nothing is frozen: its loading runs on game time, and nothing stands on the ground yet.
+        private static float _frozenScale = -1f, _freezeSince, _quietSince = -1f;
+        private static MapMagicObject _regenerating;
+
+        private static void Regenerate(MapMagicObject mm)
+        {
+            if (PlaceSpots.Playing() && _frozenScale < 0f)
+            {
+                _frozenScale = Time.timeScale;
+                Time.timeScale = 0f;
+                Plugin.Log.LogInfo("POIs: the world is regenerating; the game is frozen until the ground is back");
+            }
+            if (_frozenScale >= 0f) { _freezeSince = Time.unscaledTime; _quietSince = -1f; _regenerating = mm; }
+            mm.Refresh(true);
+        }
+
+        // every frame (the runner)
+        internal static void Tick()
+        {
+            if (_frozenScale < 0f) return;
+            float now = Time.unscaledTime;
+            bool busy = false;
+            try { if (_regenerating != null && _regenerating.tiles != null) foreach (var t in _regenerating.tiles.All()) if (t != null && t.IsGenerating) { busy = true; break; } }
+            catch { }
+            if (busy) _quietSince = -1f;
+            else if (_quietSince < 0f) _quietSince = now;
+            bool done = _quietSince >= 0f && now - _quietSince > 0.5f && now - _freezeSince > 1f;
+            if (!done && now - _freezeSince < 90f) return;
+            if (Time.timeScale == 0f) Time.timeScale = _frozenScale;   // not if something else has set it since
+            Plugin.Log.LogInfo($"POIs: the world is back after {now - _freezeSince:0.0} s; the game runs again");
+            _frozenScale = -1f; _regenerating = null;
         }
 
         // a place's own hash, mixed, as 0..1

@@ -15,12 +15,13 @@ namespace SigmaMod
     {
         public const string GUID = "com.burner.apocalypter.sigmamod";
         public const string NAME = "SigmaMod";
-        public const string VERSION = "0.4.0";
+        public const string VERSION = "2.0.0";
 
         public static ManualLogSource Log;
         public static ConfigEntry<bool> VerboseLogEntry;
         public static ConfigEntry<bool> ExportAllEntry, ExportPlacesEntry, ExportMaterialsEntry;
         public static ConfigEntry<bool> HotReloadEntry;
+        public static ConfigEntry<bool> LiveCodeEntry;
 
         private static Runner _runner;
 
@@ -61,6 +62,8 @@ namespace SigmaMod
             };
             HotReloadEntry = Config.Bind("Tools", "HotReload", false,
                 "Rebuild templates when their .glb or .json changes and swap spawned copies. For modding.");
+            LiveCodeEntry = Config.Bind("Dev", "LiveCode", false,
+                "Load DLLs from BepInEx/live and reload them when rebuilt. For modding.");
             DropOldSettings();
 
             var harmony = new Harmony(GUID);
@@ -99,6 +102,8 @@ namespace SigmaMod
         {
             FsmDump.Tick();
             HotReload.Tick();
+            LiveCode.Tick();
+            Poi.Tick();
         }
     }
 }

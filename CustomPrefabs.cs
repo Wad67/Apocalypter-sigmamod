@@ -167,15 +167,18 @@ namespace SigmaMod
         internal static void Registered()
         {
             Poi.Rebuild();
+            try { Places.Rebuild(); } catch (Exception e) { Plugin.Log.LogError("places: " + e); }
             SpawnLists.Join(All.Where(i => i.Spawns));
             InvalidateApocaspawner();
         }
 
-        // newest of the .glb and its .json; a file that is not there counts as unchanged
+        // newest of the .glb, its .json and its .lua (with the Lua libraries); a file that is not there counts as unchanged
         internal static DateTime Stamp(string glb)
         {
             var stamp = File.GetLastWriteTimeUtc(glb);
             if (File.Exists(JsonPath(glb)) && File.GetLastWriteTimeUtc(JsonPath(glb)) > stamp) stamp = File.GetLastWriteTimeUtc(JsonPath(glb));
+            var lua = Lua.Stamp(glb);
+            if (lua > stamp) stamp = lua;
             return stamp;
         }
 
@@ -267,6 +270,13 @@ namespace SigmaMod
                     catch (Exception e) { throw new Exception($"{Path.GetFileName(JsonPath(path))}: {e.Message}"); }
                     if (overrides != null) overrides = ExpandShorthand(overrides, path);
                 }
+                // the asset's script: its entries over the .json's
+                if (File.Exists(Lua.ScriptPath(path)))
+                {
+                    var doc = ExpandShorthand(Lua.Document(path), path);
+                    if (overrides == null) overrides = doc;
+                    else foreach (var kv in doc) overrides[kv.Key] = kv.Value;
+                }
             }
             catch (Exception e)
             {
@@ -309,13 +319,11 @@ namespace SigmaMod
                     Plugin.Log.LogWarning($"custom prefab: {path}: '{id}': no game prefab found to build on ({how})");
                     continue;
                 }
-                if (Math.Abs(rootNode.S[0] - 1) > 1e-3 || Math.Abs(rootNode.S[1] - 1) > 1e-3 || Math.Abs(rootNode.S[2] - 1) > 1e-3)
-                    Plugin.Log.LogWarning($"custom prefab: '{id}': root object is scaled {rootNode.S[0]},{rootNode.S[1]},{rootNode.S[2]}; " +
-                                          "the root transform is not used, apply the scale in Blender (Ctrl+A)");
                 Dictionary<string, object> spec = null;
                 if (overrides != null && overrides.TryGetValue(id, out var sv) && !(sv is Dictionary<string, object>))
                     Plugin.Log.LogWarning($"custom prefab: {JsonPath(path)}: '{id}' must be an object");
                 else if (overrides != null && overrides.TryGetValue(id, out sv)) spec = (Dictionary<string, object>)sv;
+                BakeScale(model, root, spec, id);
                 var t = Assemble(model, root, path, id, prefabId, rootEx, donor, mgr, spec,
                                  overrides != null && overrides.TryGetValue("fsms", out var fl) ? fl as Dictionary<string, object> : null);
                 t.Stamp = stamp;
@@ -325,6 +333,54 @@ namespace SigmaMod
                 Plugin.Verbose($"custom prefab: '{id}': {how}");
             }
             return entry.Templates;
+        }
+
+        // The root's scale (Blender's, not applied) times the .json's "scale" (a number, or [x, y, z]) goes into the
+        // model itself: the root's mesh and every child's offset and scale, so the template's root is unscaled (a
+        // vehicle's body must be) and everything in it, colliders and the .json's own positions included, is in metres.
+        // A non-uniform scale is exact only for children not turned against it.
+        private static void BakeScale(GltfModel model, int root, Dictionary<string, object> spec, string id)
+        {
+            var node = model.Nodes[root];
+            float[] k = { node.S[0], node.S[1], node.S[2] };
+            if (spec != null && spec.TryGetValue("scale", out var sv))
+            {
+                if (sv is double d) { k[0] *= (float)d; k[1] *= (float)d; k[2] *= (float)d; }
+                else if (sv is List<object> l && l.Count == 3)
+                    for (int i = 0; i < 3; i++) k[i] *= Convert.ToSingle(l[i], System.Globalization.CultureInfo.InvariantCulture);
+                else Plugin.Log.LogWarning($"custom prefab: '{id}': \"scale\" is a number or [x, y, z]");
+            }
+            node.S = new float[] { 1, 1, 1 };
+            if (Math.Abs(k[0] - 1) < 1e-5 && Math.Abs(k[1] - 1) < 1e-5 && Math.Abs(k[2] - 1) < 1e-5) return;
+            foreach (int c in node.Children)
+            {
+                var n = model.Nodes[c];
+                n.T = new[] { n.T[0] * k[0], n.T[1] * k[1], n.T[2] * k[2] };
+                n.S = new[] { n.S[0] * k[0], n.S[1] * k[1], n.S[2] * k[2] };
+            }
+            if (node.Mesh >= 0)
+            {
+                var m = model.Meshes[node.Mesh];
+                if (m.Extras != null && m.Extras.ContainsKey("unreadable"))
+                    Plugin.Log.LogWarning($"custom prefab: '{id}': the root's mesh is the game's own (unreadable), so it keeps its size");
+                else
+                {
+                    // a copy: another object may share the mesh
+                    var copy = new GMesh { Name = m.Name, Uvs = m.Uvs, Extras = m.Extras, Positions = (float[])m.Positions.Clone(), Normals = m.Normals != null ? (float[])m.Normals.Clone() : null };
+                    copy.Submeshes.AddRange(m.Submeshes); copy.SubmeshMaterials.AddRange(m.SubmeshMaterials);
+                    for (int i = 0; i + 2 < copy.Positions.Length; i += 3)
+                        for (int a = 0; a < 3; a++) copy.Positions[i + a] *= k[a];
+                    if (copy.Normals != null)
+                        for (int i = 0; i + 2 < copy.Normals.Length; i += 3)
+                        {
+                            var v = new Vector3(copy.Normals[i] / k[0], copy.Normals[i + 1] / k[1], copy.Normals[i + 2] / k[2]).normalized;
+                            copy.Normals[i] = v.x; copy.Normals[i + 1] = v.y; copy.Normals[i + 2] = v.z;
+                        }
+                    model.Meshes.Add(copy);
+                    node.Mesh = model.Meshes.Count - 1;
+                }
+            }
+            Plugin.Log.LogInfo($"custom prefab: '{id}': scaled {k[0]:0.####} x {k[1]:0.####} x {k[2]:0.####} (root scale and \"scale\")");
         }
 
         // The game prefab a template builds on. An unchanged export names it on its root (es3prefab).
@@ -573,13 +629,23 @@ namespace SigmaMod
                 Plugin.Log.LogWarning($"custom prefab: '{id}': chassis mass is the default 1 kg; set Rigidbody.mass in the .json");
         }
 
-        // Drive layout from "drive" in the chassis .json ("front", "rear", "all", or an axle number, front first:
+        // Drive layout from "drive" in the chassis .json ("front", "rear", "all", "none", or an axle number, front first:
         // with more than two axles "rear" is the second one). SetDefaults builds a front, a rear and a centre
         // differential (all open) with the gearbox on the centre one: all-wheel drive, 50/50. Front or rear
         // drive puts the gearbox straight onto that axle's differential and drops the other two, so the
         // undriven axle's wheels only steer and brake.
         private static string Drive(NWH.VehiclePhysics2.Powertrain.Powertrain pt, Dictionary<string, object> overrides, string id)
         {
+            object dv = null;
+            overrides?.TryGetValue("drive", out dv);
+            // none: the engine turns only itself and what is on its crank (a belt-driven generator, a pump); the clutch
+            // hands nothing on, so the wheels are free and simulate themselves, turned only by what acts on them
+            if (dv is string ns && ns.Trim().Equals("none", StringComparison.OrdinalIgnoreCase))
+            {
+                pt.clutch.Output = null;
+                foreach (var w in pt.wheels) if (w != null && w.wheelUAPI != null) w.wheelUAPI.AutoSimulate = true;
+                return "none (the clutch drives nothing; the wheels are free)";
+            }
             // one wheel (a bike, a dyno flywheel): NWH leaves it unconnected and says to put it on the gearbox directly
             if (pt.wheels.Count == 1)
             {
@@ -587,8 +653,6 @@ namespace SigmaMod
                 pt.differentials = new List<NWH.VehiclePhysics2.Powertrain.DifferentialComponent>();
                 return "single-wheel (gearbox straight to the wheel)";
             }
-            object dv = null;
-            overrides?.TryGetValue("drive", out dv);
             // a number: that axle (0 = the front one; NWH wires a differential to the first two axles only)
             if (dv is double dn)
             {
@@ -661,6 +725,7 @@ namespace SigmaMod
         {
             Plugin.Verbose($"custom prefab: instance {es3.name} of '{info.Id}'");
             Instantiated?.Invoke(es3.gameObject, info);
+            Lua.Attach(es3.gameObject, info.Id);
             foreach (var kv in es3.localRefs)
             {
                 if (!(kv.Key is GameObject obj) || !info.NodeExtras.TryGetValue(kv.Value, out var ex)) continue;

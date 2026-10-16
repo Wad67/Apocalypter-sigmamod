@@ -22,6 +22,8 @@
     <Reference Include="System.Core"><HintPath>$(ManagedDir)/System.Core.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="netstandard"><HintPath>$(ManagedDir)/netstandard.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="BepInEx"><HintPath>$(BepInExCore)/BepInEx.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="MoonSharp.Interpreter"><HintPath>lib/MoonSharp.Interpreter.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Mono.Cecil"><HintPath>$(GameDir)/BepInEx/core/Mono.Cecil.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="0Harmony"><HintPath>$(BepInExCore)/0Harmony.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine"><HintPath>$(ManagedDir)/UnityEngine.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(ManagedDir)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
@@ -42,10 +44,14 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="tools/**" />
+    <Compile Remove="parts/**" />
   </ItemGroup>
   <Target Name="DeployToGame" AfterTargets="Build">
     <Copy SourceFiles="$(OutDir)$(AssemblyName).dll" DestinationFolder="$(DeployDir)" />
     <Copy SourceFiles="icon.png" DestinationFolder="$(DeployDir)" Condition="Exists('icon.png')" />
+    <Copy SourceFiles="lib/MoonSharp.Interpreter.dll;lib/MoonSharp.LICENSE.txt" DestinationFolder="$(DeployDir)" />
+    <ItemGroup><LuaLib Include="lua/**/*.lua" /></ItemGroup>
+    <Copy SourceFiles="@(LuaLib)" DestinationFiles="@(LuaLib->'$(DeployDir)/lua/%(RecursiveDir)%(Filename)%(Extension)')" />
     <!-- assets are not copied: $(DeployDir)/sigma_assets is a link to this repo's assets/ -->
     <Message Importance="high" Text="Deployed $(AssemblyName).dll to $(DeployDir)" />
   </Target>

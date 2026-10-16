@@ -325,16 +325,22 @@ namespace SigmaMod
     {
         private static readonly Dictionary<string, Type> Cache = new Dictionary<string, Type>();
 
+        // a new generation of live code: names may mean other types now
+        public static void Clear() => Cache.Clear();
+
         public static Type Component(string name) => Find(name, typeof(Component));
 
         // any type by full or short name, abstract ones too; null when there is none
         public static Type Any(string name)
         {
+            var live = LiveCode.Find(name);
+            if (live != null) return live;
             string key = "any|" + name;
             if (Cache.TryGetValue(key, out var have)) return have;
             Type pick = null;
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
+                if (LiveCode.IsRetired(asm)) continue;
                 Type[] types;
                 try { types = asm.GetTypes(); }
                 catch (ReflectionTypeLoadException e) { types = e.Types.Where(x => x != null).ToArray(); }
@@ -351,11 +357,14 @@ namespace SigmaMod
 
         public static Type Find(string name, Type baseType)
         {
+            var live = LiveCode.Find(name);
+            if (live != null && !live.IsAbstract && baseType.IsAssignableFrom(live)) return live;
             string key = baseType.FullName + "|" + name;
             if (Cache.TryGetValue(key, out var have)) return have;
             var found = new List<Type>();
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
+                if (LiveCode.IsRetired(asm)) continue;
                 Type[] types;
                 try { types = asm.GetTypes(); }
                 catch (ReflectionTypeLoadException e) { types = e.Types.Where(x => x != null).ToArray(); }

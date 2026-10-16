@@ -41,7 +41,7 @@ namespace SigmaMod
     internal static class Overrides
     {
         private const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-        private static readonly HashSet<string> Reserved = new HashSet<string> { "nodes", "drive", "poi", "instance", "fsm", "add", "collider", "playmaker", "layer", "tag", "parent", "position", "rotation", "at", "align" };
+        private static readonly HashSet<string> Reserved = new HashSet<string> { "nodes", "drive", "poi", "places", "replaces", "scale", "instance", "fsm", "add", "collider", "playmaker", "layer", "tag", "parent", "position", "rotation", "at", "align" };
 
         private static IEnumerable<KeyValuePair<GameObject, Dictionary<string, object>>> Objects(GameObject root, Dictionary<string, object> spec,
                                                                                                Func<string, GameObject> node, string where)
@@ -156,6 +156,9 @@ namespace SigmaMod
                         progress = true;
                         continue;
                     }
+                    // placed at (or turned as) an object still to be made: after it
+                    bool Waits(string key) => d.TryGetValue(key, out var r) && r is string rn && node(rn) == null && pending.Any(p => p.Key == rn);
+                    if (Waits("at") || Waits("align")) continue;
                     var go = new GameObject(kv.Key);
                     go.transform.SetParent(parent.transform, false);
                     go.layer = parent.layer;

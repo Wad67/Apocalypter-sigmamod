@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- SigmaMod's parts in C#: built into SigmaMod/live, loaded at start (and reloaded while running with Dev.LiveCode). -->
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>SigmaParts</AssemblyName>
+    <RootNamespace>SigmaMod.Parts</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <NoStdLib>true</NoStdLib>
+    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <GameDir Condition="'$(GameDir)' == ''">$(MSBuildProjectDirectory)/../..</GameDir>
+    <ManagedDir>$(GameDir)/Apocalypter_Data/Managed</ManagedDir>
+    <BepInExCore>$(GameDir)/BepInEx/core</BepInExCore>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="mscorlib"><HintPath>$(ManagedDir)/mscorlib.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="System"><HintPath>$(ManagedDir)/System.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="System.Core"><HintPath>$(ManagedDir)/System.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="netstandard"><HintPath>$(ManagedDir)/netstandard.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="BepInEx"><HintPath>$(BepInExCore)/BepInEx.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(BepInExCore)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(ManagedDir)/UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(ManagedDir)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.PhysicsModule"><HintPath>$(ManagedDir)/UnityEngine.PhysicsModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(ManagedDir)/UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.AudioModule"><HintPath>$(ManagedDir)/UnityEngine.AudioModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(ManagedDir)/UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="NWH.WheelController"><HintPath>$(ManagedDir)/NWH.WheelController.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="NWH.Common"><HintPath>$(ManagedDir)/NWH.Common.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="NWH.VehiclePhysics2"><HintPath>$(ManagedDir)/NWH.VehiclePhysics2.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>$(ManagedDir)/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="PlayMaker"><HintPath>$(ManagedDir)/PlayMaker.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="SigmaMod"><HintPath>$(GameDir)/BepInEx/plugins/SigmaMod/SigmaMod.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+  <Target Name="DeployLive" AfterTargets="Build">
+    <Copy SourceFiles="$(OutDir)$(AssemblyName).dll" DestinationFolder="$(GameDir)/BepInEx/plugins/SigmaMod/live" />
+    <Message Importance="high" Text="Live: $(AssemblyName).dll -> BepInEx/plugins/SigmaMod/live" />
+  </Target>
+</Project>
