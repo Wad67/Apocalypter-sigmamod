@@ -15,7 +15,7 @@ namespace SigmaMod
     {
         public const string GUID = "com.burner.apocalypter.sigmamod";
         public const string NAME = "SigmaMod";
-        public const string VERSION = "2.1.0";
+        public const string VERSION = "2.2.0";
 
         public static ManualLogSource Log;
         public static ConfigEntry<bool> VerboseLogEntry;
@@ -106,6 +106,7 @@ namespace SigmaMod
             HotReload.Tick();
             LiveCode.Tick();
             Poi.Tick();
+            FallWatch.Tick();
         }
     }
 }

@@ -166,9 +166,13 @@ namespace SigmaMod
 
         internal static void Registered()
         {
+            FrameTrace.Mark("registered: POIs");
             Poi.Rebuild();
+            FrameTrace.Mark("registered: places");
             try { Places.Rebuild(); } catch (Exception e) { Plugin.Log.LogError("places: " + e); }
+            FrameTrace.Mark("registered: spawn lists");
             SpawnLists.Join(All.Where(i => i.Spawns));
+            FrameTrace.Mark("registered: Apocaspawner");
             InvalidateApocaspawner();
         }
 
@@ -359,6 +363,7 @@ namespace SigmaMod
                     Plugin.Log.LogError($"custom prefab: {Path.GetFileName(path)} not reloaded, the previous version stays: {e.Message}");
                     return have.Templates;
                 }
+                ByPath[path] = new FileEntry { Stamp = stamp };   // a new file that fails: once, then not until it changes
                 throw;
             }
             if (have != null)

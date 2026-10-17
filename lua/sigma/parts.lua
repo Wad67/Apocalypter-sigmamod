@@ -1593,4 +1593,161 @@ function parts.item(o)
   return { fsm = f }
 end
 
+-- A loose item that attaches to vehicles the way the game's attachables do (its metal plates): held against a
+-- vehicle's part, Use fixes it there (a fitted part: parented to that part, no body of its own, moving with the
+-- vehicle); the game's tools take it off again, and it falls loose. Its name on screen while looked at.
+--   mass (kg, default 10), id (the game's item ID, default "attachable")
+--   colliders (Blender objects whose meshes become its colliders: convex, not drawn), collider_groups (objects that
+--   already carry its colliders, e.g. an exported vehicle's "colliders"): with either, it is built as the game builds
+--   an item of many colliders (a car door): those are switched off while it is held, and the item itself has a trigger
+--   box round its mesh, which the game's grab finds before anything inside it, and a small solid sphere, the collider
+--   the game makes a trigger while it is held: grip = { center = { x, y, z }, radius } (default its origin, 0.1).
+--   Without either, its own mesh is its collider (convex).
+function parts.attachable(g, o)
+  o = o or {}
+  g.nodes = g.nodes or {}
+  merge(g, { layer = 9, tag = "vehPartRemoved" })   -- a loose part
+  add(g, "Rigidbody")
+  g.Rigidbody = merge(g.Rigidbody or {}, { mass = o.mass or 10, collisionDetectionMode = "Continuous" })
+
+  local held = {}   -- what is switched off while it is held
+  for _, c in ipairs(o.colliders or {}) do node(g, c).collider = "convex"; table.insert(held, c) end
+  for _, c in ipairs(o.collider_groups or {}) do table.insert(held, c) end
+  if #held > 0 then
+    local grip = o.grip or {}
+    add(g, "SphereCollider")
+    g.SphereCollider = { center = grip.center or { 0, 0, 0 }, radius = grip.radius or 0.1 }
+    g.collider = { shape = "box", trigger = true, render = true }
+    local function switch(on)
+      local actions = {}
+      for _, c in ipairs(held) do table.insert(actions, { ActivateGameObject = { gameObject = c, activate = on } }) end
+      return actions
+    end
+    -- the game's grab sends these
+    fsm(g, "Colliders", {
+      globalEvents = { "CollidersActivate", "CollidersDisable" },
+      global = { CollidersActivate = "on", CollidersDisable = "off" },
+      states = { on = { actions = switch(true) }, off = { actions = switch(false) } },
+    })
+  else
+    g.collider = { shape = "convex", render = true }
+  end
+
+  fsm(g, "ID", { variables = { string = { ID = o.id or "attachable" } }, states = { ID = {} } })
+  fsm(g, "ItemName", {
+    variables = { string = { ItemName = "" } },
+    globalEvents = { "OverItem", "OffItem" },
+    global = { OverItem = "over", OffItem = "off" },
+    start = "off",
+    states = {
+      off = { actions = { { UiTextSetText = { gameObject = "{UI_ItemName}", text = "" } } } },
+      over = { actions = { { UiTextSetText = { gameObject = "{UI_ItemName}", text = "{ItemName}" } } } },
+    },
+  })
+
+  -- held against a vehicle's part (layer 8), Use fixes it there
+  fsm(g, "Attach", {
+    variables = { gameObject = { CarPart = null } },
+    states = {
+      partMissing = {
+        actions = {
+          { SendEvent = { eventTarget = "{UI_Canvas}", sendEvent = "Cursor_Point" } },
+          { TriggerEventByLayer = { trigger = "OnTriggerEnter", layer = 8, sendEvent = "next", storeCollider = "{CarPart}" } },
+        },
+        transitions = { next = "checkChild" },
+      },
+      checkChild = {
+        actions = {
+          { GameObjectIsChildOf = { gameObject = "owner", isChildOf = "{Hand}", trueEvent = "next", falseEvent = "back" } },
+        },
+        transitions = { next = "Over", back = "partMissing" },
+      },
+      Over = {
+        actions = {
+          { SendEvent = { eventTarget = "{UI_Canvas}", sendEvent = "Cursor_Wrench", everyFrame = true } },
+          { TriggerEventByLayer = { trigger = "OnTriggerExit", layer = 8, sendEvent = "back", storeCollider = "{CarPart}" } },
+          { GetButtonDown = { buttonName = "Use", sendEvent = "next" } },
+        },
+        transitions = { back = "partMissing", next = "Attach" },
+      },
+      Attach = {
+        actions = {
+          { PlaySound = { gameObject = "owner", clip = "asset:AudioClip/wrench1", volume = 1 } },
+          { DestroyComponent = { gameObject = "owner", component = "UnityEngine.Rigidbody" } },
+          { SendEvent = { eventTarget = "{PlayerCamera}/GrabItem", sendEvent = "not_Hold" } },
+          { SendEvent = { eventTarget = "{UI_Canvas}", sendEvent = "Cursor_Point" } },
+          { SetParent = { gameObject = "owner", parent = "{CarPart}", worldPositionStays = true } },
+          { SetLayer = { gameObject = "owner", layer = 8 } },
+          { SetTag = { gameObject = "owner", tag = "vehPart" } },
+          { NextFrameEvent = { sendEvent = "back" } },
+        },
+        transitions = { back = "partMissing" },
+      },
+    },
+  })
+
+  -- the game's tools take it off with de_Attach: a loose part again
+  fsm(g, "de_Attach", {
+    globalEvents = { "de_Attach" },
+    global = { de_Attach = "de Attach" },
+    states = {
+      idle = {},
+      ["de Attach"] = {
+        actions = {
+          { SetLayer = { gameObject = "owner", layer = 9 } },
+          { SetTag = { gameObject = "owner", tag = "vehPartRemoved" } },
+        },
+        transitions = { FINISHED = "idle" },
+      },
+    },
+  })
+
+  -- fitted or loose, by its tag: taken off, it leaves the vehicle and gets its body back (its own mass); fitted, it
+  -- has none, and can't be fixed again
+  fsm(g, "CheckTag", {
+    variables = {
+      float = { mass = 0 },
+      gameObject = { owner = null },
+      object = { Rigidbody = { type = "UnityEngine.Rigidbody", value = null } },
+    },
+    states = {
+      start = {
+        actions = {
+          { GetMass = { gameObject = "owner", storeResult = "{mass}" } },
+          { GetOwner = { storeGameObject = "{owner}" } },
+          { NextFrameEvent = { sendEvent = "next" } },
+        },
+        transitions = { next = "vehPartRemoved" },
+      },
+      vehPartRemoved = {
+        actions = {
+          { GameObjectCompareTag = { gameObject = "{owner}", tag = "vehPart", trueEvent = "bolted" } },
+          { SetParent = { gameObject = "owner", parent = null, worldPositionStays = true } },
+          { EnableFSM = { gameObject = "owner", fsmName = "Attach", enable = true } },
+          { HasRigidBody = { gameObject = "owner", found = "{}", foundEvent = "loose" } },
+          { AddComponent = { gameObject = "owner", component = "UnityEngine.Rigidbody", storeComponent = "{Rigidbody}" } },
+          { SetMass = { gameObject = "owner", mass = "{mass}" } },
+          { SetProperties = { on = "{Rigidbody}", collisionDetectionMode = "Continuous" } },
+        },
+        transitions = { bolted = "vehPart", loose = "loose", FINISHED = "loose" },
+      },
+      loose = {
+        actions = {
+          { GameObjectCompareTag = { gameObject = "{owner}", tag = "vehPart", trueEvent = "next", everyFrame = true } },
+        },
+        transitions = { next = "vehPart" },
+      },
+      vehPart = {
+        actions = {
+          { DestroyComponent = { gameObject = "owner", component = "UnityEngine.Rigidbody" } },
+          { EnableFSM = { gameObject = "owner", fsmName = "Attach", enable = false } },
+          { GameObjectCompareTag = { gameObject = "{owner}", tag = "vehPart", falseEvent = "next", everyFrame = true } },
+        },
+        transitions = { next = "vehPartRemoved" },
+      },
+    },
+  })
+  return g
+end
+
 return parts

@@ -175,9 +175,21 @@ The options are in the library's own comments (`SigmaMod/lua/sigma/parts.lua`); 
 | `saved(g, name, suffix, fsm, var)` | An FSM float kept with the save. | |
 | `tooltip(g, name, o)` | A readout of components' properties on the HUD. | `source`, `name`, `line2`, `line3`, `use`, `sources`, `label` |
 | `item(o)` | A game item made into another: its ID and name. The whole template. | `id`, `name` |
+| `attachable(g, o)` | A loose item that attaches to vehicles as the game's metal plates do: Use against a vehicle fixes it there, the game's tools take it off. With several colliders, built as the game builds a car door, so it picks up whole. | `mass`, `id`, `colliders` (objects whose meshes become its colliders), `collider_groups` (objects already carrying colliders, from an export), `grip` (`center`, `radius`) |
 
 A mod can ship its own library: a `.lua` in its `sigma_assets` folder that isn't an asset's own script is a library
-its assets can `require` (Apoc-Air's `apocair/flight.lua`).
+its own assets can `require` (Apoc-Air's `apocair/flight.lua`). Another mod's libraries aren't found: only SigmaMod's
+`lua/` and the asset's own mod folder are searched.
+
+An attachable plate from scratch (`examples/metal_plate.lua`): the plate's mesh with its colliders parented to it.
+
+```lua
+local parts = require "sigma.parts"
+
+local plate = { name = "Metal Plate" }
+parts.attachable(plate, { mass = 10, colliders = { "Collider A", "Collider B", "Collider C" } })
+template "metal_plate" (plate)
+```
 
 ## The C# parts
 
@@ -278,7 +290,15 @@ New places of your own (`poi = { in = ..., share = ... }`, footprints) are as be
 
 `Tools.HotReload`: saving an asset's `.glb`, `.lua` (or a library it requires) or `.json` rebuilds that asset and
 swaps every spawned copy in place, fitted parts moved over. Changing a POI re-places it, which regenerates the
-terrain: the game is frozen until the ground is back, so nothing standing on it falls through.
+terrain: the game is frozen until the ground is back, so nothing standing on it falls through. A file that fails to
+load is reported once, then tried again when it changes.
+
+## Fallen through the ground
+
+Anything that falls through the map keeps falling, and after some minutes it is far enough down to lock the game.
+Every two seconds each body is checked against the ground under it: one more than 100 m below and still falling is put
+back on the ground right above, at rest, and the log says what it was (`fall watch:`). Something resting underground,
+in a cave, isn't falling and stays.
 
 ## Settings
 
@@ -291,7 +311,7 @@ terrain: the game is frozen until the ground is back, so nothing standing on it 
 | `Tools.ExportMaterials` | off | A button: every game material and terrain layer as a swatch, to `BepInEx/SigmaMod-export-materials/`. |
 | `Tools.HotReload` | off | Rebuild assets when their files change, and swap spawned copies. For modding. |
 | `Dev.LiveCode` | off | Reload live DLLs when they're rebuilt. For modding. |
-| `Debug.VerboseLog` | off | Log spam, plus FSM, vehicle and terrain graph dumps in `BepInEx/`. |
+| `Debug.VerboseLog` | off | Log spam, plus FSM, vehicle and terrain graph dumps in `BepInEx/`; bodies 50 m under the ground reported; a frame trace (`SigmaMod-frames.txt`) for ten minutes after a hot reload, to place a freeze. |
 | `Debug.StarterCar` | empty | The starting car of a new game: a template's id (`sigma_chassis`) or a game car's name (`Junker`). Empty is the game's random pick. A name that isn't on the starter list is logged with the ones that are. |
 
 ## For mod authors
@@ -326,6 +346,8 @@ The old table (README.old) still holds. New ones:
 | `components of an old generation still alive` | Live code that registered something and didn't undo it in `OnDisable` / `[OnUnload]`. |
 | `places: no place 'X'` | Not a place prefab in this world's terrain graph, nor a scene object. |
 | A lever or switch ignores clicks | Something solid that isn't a vehicle or item body is between you and it. |
+| `module '...' not found` | A `require` of another mod's library: only SigmaMod's `lua/` and the asset's own mod folder are searched. |
+| Grabbing an item takes one of its colliders, not the item | Its colliders are other objects, and none is on the item itself: `parts.attachable` with `colliders` or `collider_groups` builds it so the item picks up whole. |
 
 ## Build
 

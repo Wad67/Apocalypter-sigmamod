@@ -55,15 +55,19 @@ namespace SigmaMod
                     var list = CustomPrefabs.LoadFile(src, path, mgr);
                     if (list.All(before.Contains)) continue; // failed: the previous version stays
                     Plugin.Log.LogInfo($"hot reload: {src.Mod}/{Path.GetFileName(path)}: {string.Join(", ", list.Select(t => t.Id).ToArray())}");
+                    FrameTrace.Start($"hot reload of {Path.GetFileName(path)}");
                     rebuilt.AddRange(list);
                 }
             }
             if (rebuilt.Count > 0)
             {
+                FrameTrace.Mark("reload: registering");
                 CustomPrefabs.Registered();
+                FrameTrace.Mark("reload: registered; swapping copies");
                 foreach (var t in rebuilt)
                     foreach (var es3 in UnityEngine.Object.FindObjectsOfType<ES3Prefab>())
                         if (es3.prefabId == t.PrefabId && es3.gameObject != t.Prefab) Swap(es3.gameObject, t.PrefabId);
+                FrameTrace.Mark("reload: done");
             }
             for (int i = Waiting.Count - 1; i >= 0; i--)
             {
