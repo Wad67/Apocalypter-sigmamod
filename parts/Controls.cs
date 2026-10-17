@@ -59,6 +59,13 @@ namespace SigmaMod.Parts
         protected override string Line2 => on ? "On" : "Off";
         protected override string Use => use;
 
+        // pulled or released as a click would (with its sound): from an FSM (the driver's handbrake key)
+        public bool Pulled
+        {
+            get => on;
+            set { if (value == on) return; on = value; Play(on ? pulled : released); }
+        }
+
         private void OnEnable()
         {
             _member = new MemberPath(property);
@@ -95,6 +102,13 @@ namespace SigmaMod.Parts
 
         protected override string Line2 => state ? (on ? "On" : "Off") : null;
         protected override string Use => "Switch: Left mouse button";
+
+        // switched as a click would (its sound, its events to the vehicle): from an FSM (the driver's headlight key)
+        public bool On
+        {
+            get => on;
+            set { if (value == on) return; on = value; Play(clip); Broadcast(on ? eventOn : eventOff); Show(); }
+        }
 
         private void OnEnable() { Show(); }
 

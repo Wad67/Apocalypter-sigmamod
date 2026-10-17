@@ -522,13 +522,22 @@ end
 -- A slot a part clips into (a dashboard, a radio, a headlight, a seat): name, accepts.
 --   use ("hinge_attach", "dashboard_attach" or "wheel_attach": how the part is held), at (a marker: made there),
 --   align (turned as the marker too), shape ("box" or "sphere"), layer (default 2),
---   marker (true: the marker shows while the slot is empty, the seat's way)
+--   marker (true: the marker shows while the slot is empty, the seat's way),
+--   box (its trigger's size {x, y, z}, or true for the game's 20 cm) or sphere (its radius): a trigger of that size
+--   where the slot is, for a slot with no mesh to make one round (an empty hinge)
 function parts.slot(g, name, accepts, o)
   o = o or {}
   local spec = node(g, name)
   if o.at then merge(spec, { parent = "root", at = o.at }) if o.align then spec.align = o.at end end
   spec.layer = o.layer or 2
-  spec.collider = { shape = o.shape or "box", trigger = true, from = o.at }
+  if o.box then
+    local size = o.box == true and { 0.2, 0.2, 0.2 } or o.box
+    add(spec, "BoxCollider"); spec.BoxCollider = { isTrigger = true, size = size }
+  elseif o.sphere then
+    add(spec, "SphereCollider"); spec.SphereCollider = { isTrigger = true, radius = o.sphere }
+  else
+    spec.collider = { shape = o.shape or "box", trigger = true, from = o.at }
+  end
   fsm(spec, "vehPart_Attach", { use = o.use or "hinge_attach", variables = { string = { AcceptID = accepts } } })
   if o.marker then
     fsm(spec, "getParent", { variables = { gameObject = { vehicle = "root" } }, states = { idle = {} } })
@@ -1593,6 +1602,79 @@ function parts.item(o)
   return { fsm = f }
 end
 
+
+
+-- A pedal (the gas, brake or clutch): it moves with its input every frame, from where it rests to where it is pressed,
+-- along its own axis (the game's pedals' way). name, input ("Throttle", "Brakes" or "Clutch"), travel ({x, y, z}: m from
+-- rest to pressed, in its parent's space; the game's gas 9.3 cm, brake 10.4, clutch 10.2 along Z)
+function parts.pedal(g, name, o)
+  fsm(node(g, name), "Pedal", {
+    variables = { float = { input = 0 }, vector3 = { rest = { 0, 0, 0 }, pressed = { 0, 0, 0 }, at = { 0, 0, 0 } } },
+    start = "rest",
+    states = {
+      -- where it rests, as the model has it, and where it is pressed
+      rest = {
+        actions = {
+          { GetPosition = { gameObject = "owner", vector = "{rest}", space = "Self" } },
+          { SetVector3Value = { vector3Variable = "{pressed}", vector3Value = "{rest}" } },
+          { Vector3Add = { vector3Variable = "{pressed}", addVector = o.travel } },
+        },
+        transitions = { FINISHED = "pedal" },
+      },
+      pedal = {
+        actions = {
+          { GetProperties = { on = "root:VehicleController", ["input." .. o.input] = "{input}", everyFrame = true } },
+          { Vector3Lerp = { fromVector = "{rest}", toVector = "{pressed}", amount = "{input}", storeResult = "{at}", everyFrame = true } },
+          { SetPosition = { gameObject = "owner", vector = "{at}", space = "Self", everyFrame = true } },
+        },
+      },
+    },
+  })
+end
+
+-- The driver's controls, the game's own (its cars' INPUT FSMs, sigma/car_input.lua): the throttle, brakes, clutch and
+-- steering from the game's axes, the shift keys and the H-shifter, mouse steering, cruise control and the horn, with the
+-- game's driving settings (automatic gearbox, H-shifter, auto clutch, smoothed input, steering speed) applied as they
+-- change. On an INPUT object under the seat's DriveTrigger, live while someone sits there (parts.driver_seat with
+-- input = "DriveTrigger"). The handbrake key pulls and releases the vehicle's lever, the headlight key works its switch.
+--   handbrake (a parts.toggle_lever's collider), headlights (a parts.headlights collider), horn_at (where the horn
+--   sounds, default the root)
+function parts.car_input(g, o)
+  o = o or {}
+  local spec = merge(node(g, "INPUT"), { parent = "DriveTrigger" })
+  for name, def in pairs(require("sigma.car_input")({ horn = "Horn" })) do fsm(spec, name, def) end
+  g.nodes.Horn = { parent = "root", at = o.horn_at, add = { "AudioSource" }, AudioSource = { playOnAwake = false, spatialBlend = 1 } }
+  -- a key that flips a part's state as a click would
+  local function key(button, target, property)
+    return {
+      variables = { bool = { state = false } },
+      states = {
+        wait = { actions = { { GetButtonDown = { buttonName = button, sendEvent = "press" } } }, transitions = { press = "flip" } },
+        flip = {
+          actions = {
+            { GetProperties = { on = target, [property] = "{state}" } },
+            { BoolFlip = { boolVariable = "{state}" } },
+            { SetProperties = { on = target, [property] = "{state}" } },
+          },
+          transitions = { FINISHED = "wait" },
+        },
+      },
+    }
+  end
+  if o.handbrake then fsm(spec, "INPUT_Handbrake", key("Handbrake", o.handbrake .. ":SigmaMod.Parts.ToggleLever", "Pulled")) end
+  if o.headlights then fsm(spec, "INPUT_Headlight", key("Headlight", o.headlights .. ":SigmaMod.Parts.Switch", "On")) end
+  -- live only while someone sits in the seat: the seat tells DriveTrigger DriveOn and DriveOff
+  fsm(node(g, "DriveTrigger"), "Controls", {
+    globalEvents = { "DriveOn", "DriveOff" },
+    global = { DriveOn = "on", DriveOff = "off" },
+    start = "off",
+    states = {
+      off = { actions = { { ActivateGameObject = { gameObject = "INPUT", activate = false } } } },
+      on = { actions = { { ActivateGameObject = { gameObject = "INPUT", activate = true } } } },
+    },
+  })
+end
+
 -- A loose item that attaches to vehicles the way the game's attachables do (its metal plates): held against a
 -- vehicle's part, Use fixes it there (a fitted part: parented to that part, no body of its own, moving with the
 -- vehicle); the game's tools take it off again, and it falls loose. Its name on screen while looked at.
@@ -1723,7 +1805,7 @@ function parts.attachable(g, o)
         actions = {
           { GameObjectCompareTag = { gameObject = "{owner}", tag = "vehPart", trueEvent = "bolted" } },
           { SetParent = { gameObject = "owner", parent = null, worldPositionStays = true } },
-          { EnableFSM = { gameObject = "owner", fsmName = "Attach", enable = true } },
+          { EnableFSM = { gameObject = "owner", fsmName = "Attach", enable = true, resetOnExit = false } },
           { HasRigidBody = { gameObject = "owner", found = "{}", foundEvent = "loose" } },
           { AddComponent = { gameObject = "owner", component = "UnityEngine.Rigidbody", storeComponent = "{Rigidbody}" } },
           { SetMass = { gameObject = "owner", mass = "{mass}" } },
@@ -1740,7 +1822,7 @@ function parts.attachable(g, o)
       vehPart = {
         actions = {
           { DestroyComponent = { gameObject = "owner", component = "UnityEngine.Rigidbody" } },
-          { EnableFSM = { gameObject = "owner", fsmName = "Attach", enable = false } },
+          { EnableFSM = { gameObject = "owner", fsmName = "Attach", enable = false, resetOnExit = false } },
           { GameObjectCompareTag = { gameObject = "{owner}", tag = "vehPart", falseEvent = "next", everyFrame = true } },
         },
         transitions = { next = "vehPartRemoved" },

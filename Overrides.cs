@@ -41,7 +41,7 @@ namespace SigmaMod
     internal static class Overrides
     {
         private const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-        private static readonly HashSet<string> Reserved = new HashSet<string> { "nodes", "drive", "poi", "places", "replaces", "scale", "instance", "fsm", "add", "collider", "playmaker", "layer", "tag", "parent", "position", "rotation", "at", "align" };
+        private static readonly HashSet<string> Reserved = new HashSet<string> { "nodes", "drive", "poi", "places", "replaces", "scale", "instance", "fsm", "add", "collider", "playmaker", "layer", "tag", "parent", "position", "rotation", "at", "align", "copy" };
 
         private static IEnumerable<KeyValuePair<GameObject, Dictionary<string, object>>> Objects(GameObject root, Dictionary<string, object> spec,
                                                                                                Func<string, GameObject> node, string where)
@@ -131,7 +131,9 @@ namespace SigmaMod
         }
 
         // "nodes" entries with "parent": an object the Blender file doesn't have becomes a new empty one (logic-only
-        // things like a sound source), placed at the position of the object named by "at", then moved by "position"
+        // things like a sound source), or with "copy": "<game prefab>/<path>" a copy of that object of a game prefab (the
+        // seated player model, its armature with it: "Outrider/parts/PlayerModel_Sit"), at its own pose under the parent;
+        // either placed at the position of the object named by "at", then moved by "position"
         // [x,y,z] (Unity space, local to the parent: x is Blender's -X), turned to match the object named by "align"
         // (its rotation, not its scale) and by "rotation" [x,y,z] degrees; one
         // it has moves under that parent, staying where it is in the world (e.g. under a spinning wheel visual).
@@ -159,9 +161,21 @@ namespace SigmaMod
                     // placed at (or turned as) an object still to be made: after it
                     bool Waits(string key) => d.TryGetValue(key, out var r) && r is string rn && node(rn) == null && pending.Any(p => p.Key == rn);
                     if (Waits("at") || Waits("align")) continue;
-                    var go = new GameObject(kv.Key);
-                    go.transform.SetParent(parent.transform, false);
-                    go.layer = parent.layer;
+                    GameObject go;
+                    if (d.TryGetValue("copy", out var cv) && cv is string from)
+                    {
+                        var src = GamePrefabObject(from, ctx);
+                        if (src == null) { Plugin.Log.LogWarning($"{where}: nodes.{kv.Key}: \"copy\": no game prefab object '{from}'"); pending.Remove(kv); progress = true; continue; }
+                        go = UnityEngine.Object.Instantiate(src, parent.transform, false);
+                        go.name = kv.Key;
+                        go.SetActive(true);
+                    }
+                    else
+                    {
+                        go = new GameObject(kv.Key);
+                        go.transform.SetParent(parent.transform, false);
+                        go.layer = parent.layer;
+                    }
                     if (d.TryGetValue("at", out var av))
                     {
                         var at = node(av as string ?? "");
@@ -183,6 +197,18 @@ namespace SigmaMod
             }
             foreach (var kv in pending)
                 Plugin.Log.LogWarning($"{where}: nodes.{kv.Key}: parent '{((Dictionary<string, object>)kv.Value)["parent"]}' not found");
+        }
+
+        // "<game prefab>/<path below it>": a loaded game prefab Easy Save knows, by its name, and an object of it
+        private static GameObject GamePrefabObject(string from, JsonValues ctx)
+        {
+            int slash = from.IndexOf('/');
+            string prefab = slash < 0 ? from : from.Substring(0, slash), path = slash < 0 ? "" : from.Substring(slash + 1);
+            var mgr = ctx.Mgr ?? ES3Internal.ES3ReferenceMgrBase.Current;
+            if (mgr == null) return null;
+            var p = mgr.prefabs.FirstOrDefault(x => x != null && x.gameObject.name == prefab && CustomPrefabs.All.All(t => t.Prefab != x.gameObject));
+            if (p == null) return null;
+            return path.Length == 0 ? p.gameObject : p.transform.Find(path)?.gameObject;
         }
 
         // component and FSM values, for the root and every node

@@ -96,6 +96,11 @@ Anything no part covers can be written straight into the table: `g.nodes["Name"]
 `g.playmaker["Name"] = { ... }` an FSM on the root, any `"<Component>" = { field = value }` sets a component, all in
 the same terms as the old `.json` (README.old: *Tuning*, *From scratch*).
 
+A new object can also be a copy of an object of a game prefab, with everything under it: `copy = "<prefab>/<path>"`
+in its `nodes` entry, beside `parent` (and `at`, `align`, `position`, `rotation` as for an empty one). The seated
+player model, armature and all: `g.nodes["Driver Model"] = { parent = "DriveTrigger", copy =
+"Outrider/parts/PlayerModel_Sit", at = "sitPos" }`.
+
 ### The script
 
 | | |
@@ -141,6 +146,25 @@ that copy's behaviour and is logged once.
 
 Objects passed to Lua are usable as they are: fields, properties and methods by name.
 
+## Colliders from the mesh
+
+A body that collides as it looks needs convex colliders, and a car body is anything but convex. `tools/colliders.sh`
+makes them from the object's own mesh and writes them into the `.glb`:
+
+```
+python3 -m venv tools/.venv && tools/.venv/bin/pip install coacd numpy     # once
+tools/colliders.sh my_car.glb "Body" [tolerance] [--into "Body Colliders"]
+```
+
+The mesh is cut into convex pieces where it is concave (approximate convex decomposition, CoACD) until no piece is
+further than `tolerance` from it, relative to the object's size. On a car body the default 0.05 gives about seventy
+pieces; 0.1 about thirty, coarse enough that pieces bridge the window and door openings; 0.03 about 130, nearly
+exact. A mesh that mirrors itself across X = 0 is cut one half at a time and the pieces mirrored, so both sides
+match. Each piece is a child of the object (or of the `--into` object, an empty that holds them) marked as a convex
+mesh collider, the way exports carry the game's colliders: SigmaMod builds them as colliders, and in Blender they
+are objects to look at, move or delete. Run it again and the pieces it made are replaced; colliders you made
+yourself stay. Pieces have at most 128 corners, under Unity's limit for a convex collider.
+
 ## The parts library
 
 `require "sigma.parts"`. Each part takes the template table `g` (from `parts.chassis`) and the names of your objects.
@@ -153,7 +177,7 @@ The options are in the library's own comments (`SigmaMod/lua/sigma/parts.lua`); 
 | `numbered(base, n)` | `"Body"`, `"Body.001"` ... `"Body.00n"`, for `colliders`. | |
 | `lock_volumes(g, ...)` | Volumes that carry loose items with the vehicle. | |
 | `mount(g, name, accepts, o)` | Where a game part fits (`"engine"`, `"radiator"`, ...). | `at` (a marker), `lookup`, `collider` |
-| `slot(g, name, accepts, o)` | Where a part clips in (dashboard `"gauge"`, `"radio"`, `"headlight"`, `"seat"`). | `use`, `at`, `align`, `shape`, `layer`, `marker` |
+| `slot(g, name, accepts, o)` | Where a part clips in (dashboard `"gauge"`, `"radio"`, `"headlight"`, `"seat"`). | `use`, `at`, `align`, `shape`, `layer`, `marker`, `box` or `sphere` (a trigger of that size, for an empty hinge with no mesh) |
 | `ignition(g, o)` | A key: click on/off, hold to crank. | `switch`, `fuel`, `engine`, `key`, `off` / `on` / `start` (lamps), `dashboard` |
 | `fuel_tank(g, o)` | A tank cans pour into, burning fuel, with a filler that siphons. | `tank`, `filler`, `litres`, `capacity`, `fuel`, `hose`, `hose_at`, `hose_position`, `siphon_hose`, `render`, `saved` |
 | `engine_sound(g, o)` | The engine's sound where it sits. | `at` |
@@ -170,6 +194,8 @@ The options are in the library's own comments (`SigmaMod/lua/sigma/parts.lua`); 
 | `tow_hitch(g, o)` | A hitch trailers hook onto. | `hitch`, `collider`, `reach` |
 | `toolset(g, name, o)` | A toolkit kept on board. | `at`, `mesh`, `material`, `id`, `label`, `sphere` or `box` |
 | `driver_seat(g, o)` | Get in and drive. | `enter`, `exit`, `input`, `sit`, `sit_position`, `exit_position` |
+| `car_input(g, o)` | The driver's controls, the game's own cars' INPUT FSMs: pedals, steering, shifting, H-shifter, mouse steering, cruise control, horn, with the game's driving settings. Live while someone sits in the seat (`driver_seat` with `input = "DriveTrigger"`). | `handbrake` (a `toggle_lever`'s collider), `headlights` (a `headlights` collider), `horn_at` |
+| `pedal(g, name, o)` | A pedal that moves with its input, as the game's do. | `input` (`"Throttle"`, `"Brakes"`, `"Clutch"`), `travel` (`{x, y, z}` from rest to pressed) |
 | `pose(g, bones)` | Bones posed by hand (a seated player model). | `{ bone, parent, position, rotation }` per bone |
 | `repairable(g, name, o)` | A part the repair box works on, its condition saved. | `suffix`, `condition` |
 | `saved(g, name, suffix, fsm, var)` | An FSM float kept with the save. | |
@@ -181,16 +207,6 @@ A mod can ship its own library: a `.lua` in its `sigma_assets` folder that isn't
 its own assets can `require` (Apoc-Air's `apocair/flight.lua`). Another mod's libraries aren't found: only SigmaMod's
 `lua/` and the asset's own mod folder are searched.
 
-An attachable plate from scratch (`examples/metal_plate.lua`): the plate's mesh with its colliders parented to it.
-
-```lua
-local parts = require "sigma.parts"
-
-local plate = { name = "Metal Plate" }
-parts.attachable(plate, { mass = 10, colliders = { "Collider A", "Collider B", "Collider C" } })
-template "metal_plate" (plate)
-```
-
 ## The C# parts
 
 The parts library puts these on your objects (`SigmaMod.Parts`, in `SigmaMod/live/SigmaParts.dll`). They can be used
@@ -199,14 +215,15 @@ directly too, as any component (`add = { "SigmaMod.Parts.Lever" }`, `["SigmaMod.
 | Component | | Fields |
 |---|---|---|
 | `Lever` | Stepped with the mouse, writes `property` (a dotted path such as `input.Throttle`) on `target` every frame, turns `pivot`. | `label`, `target`, `property`, `position`, `min`, `step`, `angle`, `pivot`, `more`, `less` |
-| `ToggleLever` | Pulled and released with a click, with sounds. | `label`, `target`, `property`, `on`, `pivot`, `angle`, `pulled`, `released`, `use` |
-| `Switch` | On and off: objects shown, the game's events sent to the vehicle. | `label`, `on`, `whenOn`, `whenOff`, `eventOn`, `eventOff`, `clip`, `state` |
+| `ToggleLever` | Pulled and released with a click, with sounds; `Pulled` works it from code or an FSM. | `label`, `target`, `property`, `on`, `pivot`, `angle`, `pulled`, `released`, `use` |
+| `Switch` | On and off: objects shown, the game's events sent to the vehicle; `On` works it from code or an FSM. | `label`, `on`, `whenOn`, `whenOff`, `eventOn`, `eventOff`, `clip`, `state` |
 | `KeySwitch` | The ignition key. Exposes `KeyOn` and `Cranking`; set `external` and it leaves the engine to you. | `key`, `off` / `on` / `start`, `dashboard`, `fuel`, `engineMount`, `toggle`, `stop`, `StarterClip` |
 | `GearShifter` | Shifts the gearbox, leans the fitted lever. | `target`, `lever`, `gate` |
 | `WheelHub` | Draws the fitted wheel on the rim, a bare hub without. | `rim`, `bareMesh`, `bareMaterial`, `radius`, `mass`, `grip` |
 | `FuelTank` | Burns fuel from the tank's `LiquidAmount` at the engine's `FuelConsumption`. | |
 | `Filler` | The tank's readout; F opens it to siphon into a can. | `tank`, `hose`, `hoseMesh`, `cap`, `filling`, `rate` |
 | `Readout` | HUD lines from components' properties. | `label`, `sources`, `properties` |
+| `SeatedModel` | Shows a seated player model while someone sits in `seat` and the camera isn't at their head: seen in third person, out of the way in first. | `model`, `seat`, `head` |
 
 The handled ones share `Interactable`: what's looked at is found the way the game picks things (vehicle and item
 bodies are seen through), the HUD's four lines are the game's, and clicks on a part are its own (other mods' hands
@@ -348,6 +365,7 @@ The old table (README.old) still holds. New ones:
 | A lever or switch ignores clicks | Something solid that isn't a vehicle or item body is between you and it. |
 | `module '...' not found` | A `require` of another mod's library: only SigmaMod's `lua/` and the asset's own mod folder are searched. |
 | Grabbing an item takes one of its colliders, not the item | Its colliders are other objects, and none is on the item itself: `parts.attachable` with `colliders` or `collider_groups` builds it so the item picks up whole. |
+| An attachable gives no Use prompt against a vehicle (fine with Apocapocket installed) | Made with SigmaMod before 2.3.0: its `Attach` FSM switched itself off after spawning. Apocapocket happened to switch it back on. Fixed in `parts.attachable`. |
 
 ## Build
 
