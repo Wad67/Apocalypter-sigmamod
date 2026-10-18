@@ -4,7 +4,8 @@
     python3 colliders.py <in.glb> <object> [tolerance] [out.glb] [--into <object>]   (out defaults to in, overwritten)
 
 The object's mesh is split into convex pieces by approximate convex decomposition (CoACD: cut where the surface is
-concave, until no piece strays further than the tolerance from it, relative to the object's size). On a car body 0.05
+concave, until no piece strays further than the tolerance from it, relative to the object's size). A flat mesh (a
+plane, a floor) is given 2 cm of thickness first, its faces on both sides and walls round its edges. On a car body 0.05
 (the default) is about seventy pieces with a seventh of their volume more than 5 cm from the body; 0.1 is about thirty
 with two fifths so, pieces bridging the openings like curtains; 0.03 is about 130, nearly exact. A mesh that is its own
 mirror image across its X = 0 plane (every corner has a twin within 1 mm) is split one half at a time and the pieces
@@ -21,6 +22,7 @@ import numpy as np
 import coacd
 
 MARK = 'colliders.py'   # extras.generated on the pieces this writes
+FLAT = 0.02             # m in the object's own units: how thick the colliders of a flat mesh are
 
 
 def read(path):
@@ -71,7 +73,10 @@ def mesh_of(g, binary, node):
         v = accessor(g, binary, p['attributes']['POSITION'], 3)
         f = accessor(g, binary, p['indices'], 1).reshape(-1, 3) if 'indices' in p else np.arange(len(v)).reshape(-1, 3)
         faces.append(f + sum(len(x) for x in verts)); verts.append(v)
-    v, f = np.concatenate(verts), np.concatenate(faces)
+    return weld(np.concatenate(verts), np.concatenate(faces))
+
+
+def weld(v, f):
     # weld vertices the UV seams split, so the decomposition sees one surface
     keys, inverse = np.unique(np.round(v, 5), axis=0, return_inverse=True)
     return keys, inverse.reshape(-1)[f]
@@ -118,6 +123,50 @@ def append(g, binary, data, target=None):
     return len(g['bufferViews']) - 1
 
 
+def flat_normal(v):
+    # the normal of a mesh that lies in one plane (a plane, a sheet, a floor), None for one with an inside
+    c = v - v.mean(0)
+    _, sv, vt = np.linalg.svd(c, full_matrices=False)
+    if len(sv) < 3:
+        return None
+    depth = np.abs(c @ vt[2]).max()
+    return vt[2] if depth < max(1e-5, 1e-4 * np.abs(c @ vt[0]).max()) else None
+
+
+def thicken(v, f, n):
+    # a flat mesh as a slab FLAT thick: its faces on both sides, walls round its open edges
+    top, bottom = v + n * FLAT / 2, v - n * FLAT / 2
+    k = len(v)
+    edges = np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]])
+    have = set(map(tuple, edges.tolist()))
+    walls = [t for a, b in edges.tolist() if (b, a) not in have for t in ([a, a + k, b], [b, a + k, b + k])]
+    faces = [f, f[:, ::-1] + k] + ([np.array(walls)] if walls else [])
+    return np.concatenate([top, bottom]), np.concatenate(faces)
+
+
+def decompose(v, f, tolerance):
+    # convex pieces [(corners, triangles)] of a welded mesh, and whether it was cut one half at a time and mirrored
+    coacd.set_log_level('error')
+    n = flat_normal(v)
+    if n is not None:   # nothing inside to cut (coacd crashes on it), and the game can't make a flat convex collider
+        v, f = thicken(v, f, n)
+    # cut one half at a time only where the halves can be told apart: a face across X = 0 (a mesh with no edge loop
+    # down its middle, like a plain cube) would be lost from both
+    x = v[f][:, :, 0]
+    across = ((x < -0.0005).any(1) & (x > 0.0005).any(1)).any()
+    mirrored = not across and symmetric(v)
+    if mirrored:
+        # one half, its centreline seam included; the other half is its mirror image
+        keep = (v[f][:, :, 0] >= -0.0005).all(1)
+        used = np.unique(f[keep]); remap = -np.ones(len(v), int); remap[used] = np.arange(len(used))
+        v, f = v[used], remap[f[keep]]
+    parts = coacd.run_coacd(coacd.Mesh(v, f), threshold=tolerance, decimate=True, max_ch_vertex=128, preprocess_mode='auto')
+    parts = [(np.asarray(pv), np.asarray(pf)) for pv, pf in parts]
+    if mirrored:
+        parts += [(pv * [-1, 1, 1], pf[:, ::-1]) for pv, pf in parts]   # the twin, wound the other way round
+    return parts, mirrored
+
+
 def main():
     args, into = sys.argv[1:], None
     if '--into' in args:
@@ -160,17 +209,7 @@ def main():
         nodes[c] = {'name': ''}
 
     v, f = mesh_of(g, binary, obj)
-    coacd.set_log_level('error')
-    mirrored = symmetric(v)
-    if mirrored:
-        # one half, its centreline seam included; the other half is its mirror image
-        keep = (v[f][:, :, 0] >= -0.0005).all(1)
-        used = np.unique(f[keep]); remap = -np.ones(len(v), int); remap[used] = np.arange(len(used))
-        v, f = v[used], remap[f[keep]]
-    parts = coacd.run_coacd(coacd.Mesh(v, f), threshold=tolerance, decimate=True, max_ch_vertex=128, preprocess_mode='auto')
-    parts = [(np.asarray(pv), np.asarray(pf)) for pv, pf in parts]
-    if mirrored:
-        parts += [(pv * [-1, 1, 1], pf[:, ::-1]) for pv, pf in parts]   # the twin, wound the other way round
+    parts, mirrored = decompose(v, f, tolerance)
 
     for k, (pv, pf) in enumerate(parts):
         pv = (np.c_[pv, np.ones(len(pv))] @ to_holder.T)[:, :3].astype(np.float32); pf = np.asarray(pf, np.uint32)

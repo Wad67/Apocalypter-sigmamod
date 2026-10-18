@@ -1,0 +1,19 @@
+schema_version = "1.0.0"
+
+id = "sigmamod"
+version = "2.4.0"
+name = "SigmaMod"
+tagline = "Make Apocalypter assets for SigmaMod, step by step"
+maintainer = "burner"
+type = "add-on"
+website = "https://github.com/Wad67/Apocalypter-sigmamod"
+
+tags = ["Import-Export", "Game Engine"]
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:WTFPL"]
+
+[permissions]
+files = "Reads the game's exports and log, writes your assets into the game's plugins folder"
+network = "Installs the helper tools (coacd, UnityPy) from PyPI when you press Install"

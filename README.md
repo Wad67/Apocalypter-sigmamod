@@ -28,8 +28,10 @@ builds the same document a `.json` did.
 
 ## The examples
 
-- **1981 Mitsubishi Sigma** (`sigma_chassis`): a game car's working parts under the Sigma's body, the KM132
-  five-speed ratios, a welded diff. Turns up wherever the game spawns Outriders.
+- **1981 Mitsubishi Sigma** (`sigma_chassis`): built from scratch, out of parts: its own body, interior, dashboard,
+  ignition key, pedals, handbrake, gear lever, lights and slots for the game's parts, the KM132 five-speed ratios, a
+  welded diff. Turns up wherever the game spawns Outriders. Its script, `sigma_assets/apocasigma.lua`, is also the kit
+  the Blender add-on builds cars from: read it to see what a car is made of.
 - **Astron 2000 4G52** (`astron_4g52`): the game's 2.3 L four, retuned. Sold where the 2.3 L is.
 - **Test stand** (`sigma_chassis_test`): built from scratch with no donor, out of parts: engine and radiator mounts,
   fuel tank with a siphon, ignition key, throttle, clutch, belt clutch and steering levers, gear shifter, handbrake, two
@@ -47,10 +49,58 @@ Unzip into `Apocalypter/BepInEx/plugins`. You get `BepInEx/plugins/SigmaMod/` wi
 interpreter), `lua/` (the parts library), `live/` (the C# parts), the examples in `sigma_assets/` and the modding tools
 in `tools/`.
 
+## The Blender add-on
+
+`sigmamod_blender-x.y.z.zip`, from the release page: Blender 4.2 or later, *Edit > Preferences > Get Extensions*,
+the arrow at the top right, *Install from Disk*. The 3D view's sidebar (N) gets a **SigmaMod** tab with a guide that
+walks through making an asset, one step at a time, each ticked off when it's done:
+
+1. **Set up.** Finds the game in Steam's folders and installs the helper tools (coacd, UnityPy) into a Python of its
+   own, once.
+2. **Start an asset.** Import one of the game's objects from Export All (its meshes filled from the game's files, the
+   colliders and hidden parts tidied into hidden collections), start from an empty, or copy a game object under a new
+   name.
+3. **Name it.** The id, the name players see, and your mod's folder in `BepInEx/plugins` (not SigmaMod's own: an
+   update replaces that).
+4. **Build it.** For a car of your own, a checklist of what a car needs to work (engine bay, wheels and suspension,
+   fuel tank, dashboard and ignition, driver's seat and controls) and what's nice to have (exhaust, gear lever,
+   headlights, seats and body panels, interior light, tow hitch, lock volumes, toolsets). Each is made of objects:
+   an engine bay is an engine mount and a radiator mount, a sound spot and a bay mesh if you want one; headlights are
+   as many slots as the car has; the ignition has a mesh for each state of the key. Yours are found by name as you
+   work, or picked (the eyedropper), or found in a group you point a part at; a group picked for something there can
+   be any number of takes everything in it that fits. What you haven't got can be the Sigma's, placed in proportion
+   to your body for you to move into place. *Add to car* writes the part's lines into your script for what was
+   picked: a line about something left out goes, or just its option. The checklist is the Sigma's own script
+   (`apocasigma.lua`), read from the installed SigmaMod: each `-- ##` section is one part, `[required]` what a car
+   needs, and its `-- - name [type]: what it is` lines the objects (`?` optional, `*` any number); a line marked
+   `-- optional: a, b` can lose those options. The types (`spot`, `marker`, `mesh`, `clickable`, `collider`,
+   `volume`, `solid`, `hull`) are explained in the script's own header, and the add-on shows that explanation on every
+   object: what to make it from, whether it's seen, clicked or bumped into. A section the script already has without
+   its `-- ##` block, written by hand, counts as in the car and is left alone.
+5. **Colliders.** `colliders.py`'s convex pieces from the selected mesh, made as Blender objects, so they are kept in
+   the `.blend` and exported with everything else. Made again, they replace the old ones.
+6. **Script.** A starting script for the kind of asset, opened in Blender's text editor; *Add a part* writes
+   `parts.wheel`, `parts.mount`, `parts.slot` and the rest for the selected objects, their names filled in.
+7. **Put it in the game.** Checks first: names in the script that no object has, game materials that lost their id,
+   scaled hinges, objects in switched-off collections, huge textures, an unsaved script. Then the export, with
+   the settings SigmaMod needs and the game's textures stripped, into the game. It can switch on Hot reload, and shows
+   what the game's log says about the asset.
+
+Above the guide sits Clunky, who looks at what you're doing every couple of seconds and tells you what's wrong, one
+thing at a time, with the button that fixes it: game ids left on objects (your car is about to be a clone of the
+Outrider), objects from two game objects at once, materials inherited from the game (your edits to them don't reach
+it), colliders older than the mesh they were made from, objects outside the asset, a car lying sideways or forty
+metres long, names in the script no object has, missing parts. *Shut up, Clunky* silences one hint; he sulks.
+
+*Add a part* lists the parts library as `parts.lua`'s own comments describe it, and writes each the way SigmaMod's
+shipped assets call it, the selected objects' names filled in. Long jobs run in the background (Esc cancels);
+everything they print is in the *SigmaMod log* text.
+
 ## Making an asset
 
-The Blender side is as before (README.old: *Making one*): export, butcher, export as glTF Binary, strip the textures.
-Nothing needs tagging in Blender: the script says it all. Then write `<name>.lua` next to `<name>.glb`:
+The Blender side is as before (README.old: *Making one*): export, butcher, export as glTF Binary, strip the textures,
+or let the add-on do it. Nothing needs tagging in Blender: the script says it all. Then write `<name>.lua` next to
+`<name>.glb`:
 
 ```lua
 -- my_cart.lua: a two-seat cart, everything named as in my_cart.glb
@@ -95,6 +145,10 @@ Load a save (or, with `Tools.HotReload`, just save the script) and it's there. E
 Anything no part covers can be written straight into the table: `g.nodes["Name"] = { ... }` is an object,
 `g.playmaker["Name"] = { ... }` an FSM on the root, any `"<Component>" = { field = value }` sets a component, all in
 the same terms as the old `.json` (README.old: *Tuning*, *From scratch*).
+
+Game materials lose the game's id when a material is appended or copied in Blender, and then their textures go into
+the file (a car's worth is over 100 MB). `tools/strip_textures.py <file.glb> --ids-from <other.glb>` gives them back
+the id of the same-named material in another file (an Export All file, or an earlier export) before stripping.
 
 A new object can also be a copy of an object of a game prefab, with everything under it: `copy = "<prefab>/<path>"`
 in its `nodes` entry, beside `parent` (and `at`, `align`, `position`, `rotation` as for an empty one). The seated
@@ -159,8 +213,8 @@ tools/colliders.sh my_car.glb "Body" [tolerance] [--into "Body Colliders"]
 The mesh is cut into convex pieces where it is concave (approximate convex decomposition, CoACD) until no piece is
 further than `tolerance` from it, relative to the object's size. On a car body the default 0.05 gives about seventy
 pieces; 0.1 about thirty, coarse enough that pieces bridge the window and door openings; 0.03 about 130, nearly
-exact. A mesh that mirrors itself across X = 0 is cut one half at a time and the pieces mirrored, so both sides
-match. Each piece is a child of the object (or of the `--into` object, an empty that holds them) marked as a convex
+exact. A mesh that mirrors itself across X = 0, with an edge loop down its middle, is cut one half at a time and the
+pieces mirrored, so both sides match. A flat mesh (a plane, a floor) is given 2 cm of thickness first. Each piece is a child of the object (or of the `--into` object, an empty that holds them) marked as a convex
 mesh collider, the way exports carry the game's colliders: SigmaMod builds them as colliders, and in Blender they
 are objects to look at, move or delete. Run it again and the pieces it made are replaced; colliders you made
 yourself stay. Pieces have at most 128 corners, under Unity's limit for a convex collider.
@@ -374,7 +428,8 @@ dotnet build -c Release                  # SigmaMod.dll, the Lua library and Moo
 dotnet build -c Release parts            # SigmaParts.dll into BepInEx/plugins/SigmaMod/live
 ```
 
-Against the game's own assemblies; set `GameDir` if the repo isn't in the game folder. `dotnet build -c Release
+Against the game's own assemblies; set `GameDir` if the repo isn't in the game folder. `python3 blender/build.py` makes
+the Blender add-on's zip in `dist/`, the tools bundled. `dotnet build -c Release
 tools/GltfTest` builds the offline glTF tool.
 
 ## Credits and license

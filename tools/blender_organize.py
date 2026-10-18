@@ -80,11 +80,12 @@ def organize(scene):
     print("organized:", ", ".join(f"{k} {v}" for k, v in counts.items()))
 
 
-if "--" in sys.argv:
-    src, dst = sys.argv[sys.argv.index("--") + 1:][:2]
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.import_scene.gltf(filepath=src)
-    organize(bpy.context.scene)
-    bpy.ops.wm.save_as_mainfile(filepath=dst)
-else:
-    organize(bpy.context.scene)
+if __name__ == "__main__":   # run as a script; the Blender add-on imports organize()
+    if "--" in sys.argv:
+        src, dst = sys.argv[sys.argv.index("--") + 1:][:2]
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        bpy.ops.import_scene.gltf(filepath=src)
+        organize(bpy.context.scene)
+        bpy.ops.wm.save_as_mainfile(filepath=dst)
+    else:
+        organize(bpy.context.scene)
