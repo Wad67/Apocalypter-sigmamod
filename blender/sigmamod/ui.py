@@ -7,7 +7,7 @@ import sys
 import blf
 import bpy
 
-from . import assets, checks, export, extras, gamedata, jobs, kit, mascot, paths, preview, script, sigmasrc, tuning
+from . import assets, attach, checks, export, extras, gamedata, jobs, kit, mascot, paths, preview, script, sigmasrc, spawn, tuning
 
 
 def _scale(context):
@@ -115,9 +115,23 @@ def draw_name(l, c):
     l.prop(s, "asset_id", text="Id")
     l.prop(s, "display_name", text="Name in game")
     wrap(l, c, "Your mod's folder in the game. Anything but SigmaMod: updates replace that one.")
-    l.prop(s, "mod_folder", text="Folder")
+    col = l.column(align=True)
+    col.prop(s, "mod_folder", text="Folder")
+    sub = col.column(align=True)
+    sub.enabled = not s.out_dir.strip()
+    sub.prop(s, "out_subfolder")
+    col.prop(s, "out_name", text="File name")
+    col.prop(s, "out_dir")
     if paths.asset_dir(s):
-        wrap(l, c, paths.asset_dir(s), icon='FILE_FOLDER')
+        wrap(l, c, paths.asset_glb(s) or paths.asset_dir(s), icon='FILE_FOLDER')
+        ok, why, mod = paths.loads(s)
+        if not ok:
+            wrap(l, c, f"The game won't load it there: {why}.", icon='ERROR')
+            if mod:
+                l.operator("sigma.load_folder", icon='CHECKMARK')
+        if s.last_path and os.path.normcase(s.last_path) != os.path.normcase(paths.asset_glb(s)) and os.path.isfile(s.last_path):
+            wrap(l, c, f"Your last export is still at {s.last_path}: the game would load both.", icon='ERROR')
+            l.operator("sigma.move_asset", icon='FORWARD')
         l.operator("sigma.open_asset_folder", icon='FILEBROWSER')
 
 
@@ -166,9 +180,12 @@ def draw_slot_part(row, c, role, it, accepts):
     """On a slot's row: its part, or the buttons that make one."""
     s = c.scene.sigma
     e = extras.for_slot(s, it.obj, None if role.multi else role.name)
-    if e is not None and e.root is not None:
+    if e is not None:
         op = row.operator("sigma.select_objects", text="", icon='CHECKMARK')
         op.names = e.root.name
+        if e.open_set or preview.open_rotation(e.donor):
+            row.operator("sigma.flip_swing", text="", icon='ARROW_LEFTRIGHT').part = e.asset_id
+        row.operator("sigma.clear_slot_part", text="", icon='TRASH').part = e.asset_id
         return
     if not gamedata.part_ids().get(accepts):
         return
@@ -197,13 +214,10 @@ def draw_role(b, c, sec, role, p, k):
     split.operator("sigma.open_role", text=name, icon=icon, emboss=False).role = role.name
     right = split.row(align=True)
     if role.multi or not shown:   # buttons on the name's line; each entry gets a line of its own
-        if not got:
+        if not got and not role.option:   # the Sigma hasn't got one to give
             right.operator("sigma.bring_role", text="", icon='IMPORT').role = role.name
-        if role.kind in ('spot', 'marker', 'collider'):
+        if role.kind in ('spot', 'marker', 'collider') and not role.multi:
             right.operator("sigma.make_role_object", text="", icon='ADD').role = role.name
-        if role.multi:
-            op = right.operator("sigma.role_slot", text="", icon='EYEDROPPER')
-            op.role, op.section = role.name, sec.title
         if not got and role.optional and not left_out:
             op = right.operator("sigma.role_slot", text="", icon='X')
             op.role, op.section, op.leave_out = role.name, sec.title, True
@@ -229,6 +243,14 @@ def draw_role(b, c, sec, role, p, k):
                 row.label(text="", icon='MOD_PHYSICS')
             else:
                 row.operator("sigma.make_colliders", text="", icon='ERROR').target = it.obj.name
+    if role.multi:   # more of them: spelled out, it's how a car gets its third door
+        what = role.label[:1].lower() + role.label[1:]
+        row = b.row(align=True)
+        row.separator(factor=2)
+        if role.kind in ('spot', 'marker', 'collider'):
+            row.operator("sigma.make_role_object", text=f"Add a {what}", icon='ADD').role = role.name
+        op = row.operator("sigma.role_slot", text="Pick one I have", icon='EYEDROPPER')
+        op.role, op.section = role.name, sec.title
     if opened:
         col = b.box().column()
         wrap(col, c, kit.explain(k, role), icon=KIND_ICON.get(role.kind, 'DOT'), boxes=4)
@@ -344,16 +366,25 @@ def draw_build(l, c):
     s = c.scene.sigma
     if s.kind == 'VARIANT':
         wrap(l, c, "A copy of a game object: nothing goes under it. Its settings go in the script.")
+        box = l.box()
+        box.prop(s, "open_spawning", icon='DOWNARROW_HLT' if s.open_spawning else 'RIGHTARROW', emboss=False)
+        if s.open_spawning:
+            spawn.draw(box.column(), c, wrap)
         return
     if s.kind == 'CAR':
         draw_car_kit(l, c)
     elif s.kind == 'ATTACHABLE':
-        wrap(l, c, "An item that bolts onto cars: one mesh (or a few) under its top object. The script lists which "
-                   "meshes it collides with, and its mass. That's it. Enjoy the simplicity while it lasts.")
+        wrap(l, c, "An item that bolts onto vehicles: its meshes under its top object. Below: what it's made of, what "
+                   "changes when it's fitted, what hurts, and how it comes off.")
+        attach.draw(l.box().column(), c, wrap)
     else:
         wrap(l, c, "Change meshes and move things freely, but leave the custom properties on the game's objects "
                    "alone: they are how SigmaMod knows what each one is. Delete a game object and it stops drawing, but "
                    "its logic stays.")
+    box = l.box()
+    box.prop(s, "open_spawning", icon='DOWNARROW_HLT' if s.open_spawning else 'RIGHTARROW', emboss=False)
+    if s.open_spawning:
+        spawn.draw(box.column(), c, wrap)
     tips = ["Faces show from one side only in game. Thin panels need thickness (Solidify).",
             "The game's own materials cost nothing in your file: Use a game material."]
     for t in tips:

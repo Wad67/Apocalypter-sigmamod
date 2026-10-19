@@ -36,10 +36,16 @@ def unity_euler(e):
 def open_rotation(donor):
     """The local rotation (Unity Euler degrees) a part's DoorOpen FSM turns its slot to, or None: from the part's own
     export (<donor>.fsm.json), so a hood that opens upwards and a door that swings out are each as the game has them."""
+    got = open_action(donor)
+    return got[1] if got else None
+
+
+def open_action(donor):
+    """(the DoorOpen state that turns the slot, its rotation) from the part's export, or None."""
     d = paths.export_dir()
     if not d or not donor:
         return None
-    cache = open_rotation.cache
+    cache = open_action.cache
     path = os.path.join(d, donor + ".fsm.json")
     try:
         mtime = os.path.getmtime(path)
@@ -50,18 +56,19 @@ def open_rotation(donor):
     rot = None
     try:
         fsms = json.load(open(path, encoding="utf-8")).get("root") or {}
-        for st in ((fsms.get("DoorOpen") or {}).get("states") or {}).values():
+        for name, st in ((fsms.get("DoorOpen") or {}).get("states") or {}).items():
             for a in st.get("actions") or []:
                 v = (a.get("iTweenRotateTo") or {}).get("vectorRotation")
                 if isinstance(v, list) and len(v) == 3:
-                    rot = [float(x) for x in v]
+                    rot = (name, [float(x) for x in v])
     except (OSError, ValueError, AttributeError):
         rot = None
     cache[path] = (mtime, rot)
     return rot
 
 
-open_rotation.cache = {}
+open_action.cache = {}
+open_rotation.cache = open_action.cache
 
 
 # ---- where things are
@@ -183,12 +190,42 @@ def _copy(context, root, tag, slot):
     return top
 
 
+def wheel_items(self, context):
+    names = gamedata.part_ids().get("wheel", [])
+    wheel_items.cache = [("PLAIN", "The game's plain wheel", "wheel_1, or the first the game has")] + \
+        [(n, n, f"The game's {n} on every hub") for n in names]
+    return wheel_items.cache
+
+
+wheel_items.cache = []
+
+
+def suspension_changed(context):
+    """A suspension position picked: the wheels shown in it (turned on if they weren't)."""
+    s = context.scene.sigma
+    if not s.preview_wheels:
+        s["preview_wheels"] = True
+        bpy.ops.sigma.preview_build('EXEC_DEFAULT')
+    else:
+        update(context)
+
+
+def wheel_changed(context):
+    if context.scene.sigma.preview_wheels:
+        bpy.ops.sigma.preview_build('EXEC_DEFAULT')
+
+
 def chosen(context, kind, slot, seed):
     """Which of the game's parts of this kind goes on this slot: the first (the same side first for a door), or one at
-    random for this slot and seed."""
+    random for this slot and seed; a wheel: the one picked for the preview, if one is."""
     names = list(gamedata.part_ids().get(kind, []))
     if not names:
         return None
+    if kind == "wheel":   # the one picked for the preview; never at random (Randomize is for the parts on slots)
+        pick = context.scene.sigma.preview_wheel
+        if pick in names:
+            return pick
+        seed = 0
     side = slot.name.rsplit("_", 1)[-1].upper() if "_" in slot.name else ""
     if side in ("L", "R"):   # a left door on a left slot: the other side's would open the wrong way round
         names = [n for n in names if not n.upper().endswith("_" + ("R" if side == "L" else "L"))] or names
@@ -202,11 +239,20 @@ def wanted(context):
     """{donor: [(slot, tag)]}: what the preview shows now."""
     s = context.scene.sigma
     out = {}
+    from . import tuning
+    lift = tuning.lift_slot(script.read_script(s) or "")
+    lift = bpy.data.objects.get(lift) if lift else None
     if s.preview_parts:
         for slot, kind in slots(context):
+            if kind == "suspension" and not s.preview_lifted:   # a fitted lift kit is what lifts it: shown lifted only
+                continue
             d = chosen(context, kind, slot, s.preview_seed)
             if d:
                 out.setdefault(d, []).append((slot, "part"))
+    if s.preview_lifted and lift is not None and not (s.preview_parts and any(sl == lift for sl, _ in slots(context))):
+        d = chosen(context, "suspension", lift, 0)   # the game's lift kit on the slot
+        if d:
+            out.setdefault(d, []).append((lift, "part"))
     if s.preview_wheels:
         for w, hub, _ in hubs(context, script.read_script(s) or ""):
             d = chosen(context, "wheel", hub, s.preview_seed)
@@ -243,13 +289,6 @@ def build(context):
                 o = _copy(context, root, "part", slot)
                 o["sigma_donor"] = donor
     s = context.scene.sigma
-    for e in s.extras:   # the car's own parts swing too: a ghost of each, posed open
-        if e.root is None or e.hinge is None or not open_rotation(e.donor):
-            continue
-        g = _copy(context, e.root, "ghost", e.hinge)
-        g["sigma_donor"] = e.donor
-        for x in [g] + list(g.children_recursive):
-            x.display_type = 'WIRE'
     if s.preview_wheels:
         me = bpy.data.meshes.new("Ground")
         h = 3.0
@@ -270,27 +309,29 @@ def update(context):
     context.view_layer.update()
     src = script.read_script(s) or ""
     from . import tuning
-    drop = tuning.rest_drop(context, src) if s.preview_wheels else {}
+    pose = s.preview_suspension
+    drop = {} if not s.preview_wheels else tuning.rest_drop(context, src) if pose == 'REST' else \
+        tuning.travel(context, src) if pose == 'DOWN' else {}   # bottomed out: at the hub itself
     rims = {hub.name: (w, rot) for w, hub, rot in hubs(context, src)}
     ground = None
     for o in objs:
         if o.parent is not None:   # moves with the copy's top
             continue
         tag, slot = o.get(TAG), bpy.data.objects.get(o.get(SLOT, ""))
-        if tag in ("part", "ghost") and slot is not None:
-            hinge = _open_hinge(slot, open_rotation(o.get("sigma_donor")), s.preview_open)
-            if tag == "part":
-                loc, rot, _ = hinge.decompose()
-                o.matrix_world = Matrix.LocRotScale(loc, rot, o.matrix_world.to_scale())
-            else:   # the car's own part, from where it sits closed, turned with its slot
-                closed = Matrix(o["sigma_closed"]) if "sigma_closed" in o else o.matrix_world
-                o.matrix_world = hinge @ slot.matrix_world.inverted() @ closed
-                o.hide_viewport = s.preview_open <= 0.001
+        if tag == "part" and slot is not None:   # fitted to the slot, as the game fits it (turned with it, open)
+            loc, rot, _ = slot.matrix_world.decompose()
+            o.matrix_world = Matrix.LocRotScale(loc, rot, o.matrix_world.to_scale())
         elif tag == "wheel" and slot is not None:
+            # as the game builds it (parts.wheel): the wheel at the hub marker's place only, turned as the car is (the
+            # marker's own rotation isn't used), its rim turned by rim_rotation; the spring along the car's up
             w, rot = rims.get(slot.name, (None, None))
-            m = slot.matrix_world.normalized()
-            centre = m @ Vector((0, 0, -drop.get(w, 0.0)))   # down its own up, as the spring is
-            r = m.to_quaternion() @ (unity_euler(rot) if rot else Quaternion())
+            car = s.root.matrix_world.to_quaternion() if s.root is not None else Quaternion()
+            out = 0.0
+            if s.preview_lifted and tuning.lift_slot(src) and s.root is not None:   # a lift kit moves the wheels out
+                x = (s.root.matrix_world.inverted() @ slot.matrix_world.translation).x
+                out = s.tuning.lift_widen * (1 if x >= 0 else -1)
+            centre = slot.matrix_world.translation + car @ Vector((out, 0, -drop.get(w, 0.0)))
+            r = car @ (unity_euler(rot) if rot else Quaternion())
             o.matrix_world = Matrix.LocRotScale(centre, r, Vector((1, 1, 1)))
             low = min((o.matrix_world @ Vector(c)).z for c in o.bound_box)
             ground = low if ground is None else min(ground, low)
@@ -304,6 +345,89 @@ def update(context):
             o.hide_viewport = ground is None
     s.preview_ground = ground if ground is not None else 0.0
     s.preview_has_ground = ground is not None
+
+
+# ---- doors, hoods and lids opened as the game opens them: the game's DoorOpen FSM turns the part's slot (its parent)
+# to the part's open rotation, and DoorClose turns it back to none. Here the slot itself is turned the same way and
+# the part made on it turns with it, so what is seen is what the game will do: where the door swings, what it hits.
+# The closed pose is kept on the objects (CLOSED, REL) and put back at 0, and before every export.
+CLOSED = "sigma_closed_rotation"   # on a slot: its own rotation, shut
+REL = "sigma_on_slot"              # on a part's top object: where it sits on its slot, shut
+
+
+def swinging(context):
+    """[(slot, open rotation, [the part's top object or None])]: the slots with a part the game swings open: the car's
+    own parts, and the preview's game parts."""
+    from . import extras
+    s = context.scene.sigma
+    out = {}
+    for e in s.extras:
+        if extras.alive(e) and e.hinge is not None and e.hinge.name in context.scene.objects:
+            rot = extras.swing(context, e)   # its own way: out from the car, or as flipped
+            if rot:
+                out[e.hinge] = (rot, e.root)
+    for o in objects():
+        slot = bpy.data.objects.get(o.get(SLOT, ""))
+        if o.get(TAG) == "part" and o.parent is None and slot is not None and slot not in out:
+            rot = open_rotation(o.get("sigma_donor"))
+            if rot:
+                out[slot] = (rot, None)   # a preview part follows its slot by itself
+    return [(slot, rot, root) for slot, (rot, root) in out.items()]
+
+
+def _local(slot):
+    parent = slot.parent.matrix_world if slot.parent else Matrix()
+    loc, q, sc = (parent.inverted() @ slot.matrix_world).decompose()
+    return parent, loc, q, sc
+
+
+def closed_rotation(slot):
+    """The slot's own rotation with its part shut (as it is, unless the preview has it open)."""
+    return Quaternion(slot[CLOSED]) if CLOSED in slot else _local(slot)[2]
+
+
+def pose(context):
+    """Every swinging slot turned frac of the way to its part's open rotation (frac: Doors and lids open), the part on
+    it turned with it; at 0 everything back as it was and the kept poses forgotten."""
+    s = context.scene.sigma
+    frac = s.preview_open
+    context.view_layer.update()
+    seen = set()
+    for slot, rot, root in swinging(context):
+        seen.add(slot)
+        parent, loc, q, sc = _local(slot)
+        shut = Quaternion(slot[CLOSED]) if CLOSED in slot else q
+        shut_world = parent @ Matrix.LocRotScale(loc, shut, sc)
+        if root is not None and REL not in root:
+            root[REL] = [list(r) for r in shut_world.inverted() @ root.matrix_world]
+        if frac > 0.001:
+            if CLOSED not in slot:
+                slot[CLOSED] = list(shut)
+            slot.matrix_world = parent @ Matrix.LocRotScale(loc, shut.slerp(unity_euler(rot), frac), sc)
+        else:
+            slot.matrix_world = shut_world
+        context.view_layer.update()
+        if root is not None:
+            root.matrix_world = slot.matrix_world @ Matrix(root[REL])
+            if frac <= 0.001:
+                del root[REL]
+        if frac <= 0.001 and CLOSED in slot:
+            del slot[CLOSED]
+    for o in bpy.data.objects:   # a slot left open whose part went: shut it
+        if CLOSED in o and o not in seen:
+            parent, loc, _, sc = _local(o)
+            o.matrix_world = parent @ Matrix.LocRotScale(loc, Quaternion(o[CLOSED]), sc)
+            del o[CLOSED]
+    context.view_layer.update()   # what's under the parts moved too
+    update(context)
+
+
+def shut(context):
+    """Everything closed again (before export: the game must get the slots as they are shut)."""
+    s = context.scene.sigma
+    if s.preview_open > 0.001 or any(CLOSED in o for o in bpy.data.objects):
+        s["preview_open"] = 0.0
+        pose(context)
 
 
 def _open_hinge(slot, rot, frac):
@@ -334,6 +458,88 @@ def clear(context, library=True):
     if library:
         for me in [m for m in bpy.data.meshes if m.users == 0]:
             bpy.data.meshes.remove(me)
+    if any(CLOSED in o for o in bpy.data.objects):   # a slot opened for a game part that's gone: shut it
+        pose(context)
+
+
+SHOWN = "sigma_lift_was"   # on an object shown or hidden by Show it lifted: how it was (hidden, hidden in viewport)
+
+
+def lift_objects(context):
+    """(lifted, stock): the objects a fitted lift kit shows and hides: the lift kit line's, and what's picked for the
+    kit's lifted-suspension roles."""
+    from . import kit, tuning
+    s = context.scene.sigma
+    names_l, names_s = tuning.lift_lists(script.read_script(s) or "")
+    k = sigmasrc.kit()
+    hidden_roles = {r.name for sec in (k or {}).get("sections", []) for r in sec.roles if r.kind == 'hidden'}
+    up = [bpy.data.objects.get(n) for n in names_l] + [r.obj for r in s.roles if r.role in hidden_roles]
+    down = [bpy.data.objects.get(n) for n in names_s]
+    return [o for o in dict.fromkeys(up) if o is not None], [o for o in dict.fromkeys(down) if o is not None]
+
+
+def _set_shown(o, show):
+    if show is None:   # back as it was
+        if SHOWN in o:
+            hid, vp = o[SHOWN]
+            o.hide_viewport = bool(vp)
+            if o.name in bpy.context.view_layer.objects:
+                o.hide_set(bool(hid))
+            del o[SHOWN]
+        return
+    if SHOWN not in o:
+        o[SHOWN] = [o.hide_get() if o.name in bpy.context.view_layer.objects else False, o.hide_viewport]
+    o.hide_viewport = not show
+    if o.name in bpy.context.view_layer.objects:
+        o.hide_set(not show)
+
+
+def _hidden_layer(context, show):
+    """The "Hidden in game" collection (where the kit keeps the lifted suspension) shown, or hidden again."""
+    from . import kit
+    c = bpy.data.collections.get(kit.HIDDEN)
+    if c is None:
+        return
+
+    def find(lc):
+        if lc.collection == c:
+            return lc
+        for x in lc.children:
+            f = find(x)
+            if f:
+                return f
+    lc = find(context.view_layer.layer_collection)
+    if lc is not None:
+        lc.hide_viewport = not show
+    c.hide_viewport = False
+
+
+def unlift(context):
+    """Shown lifted no more: every object back as it was (before export)."""
+    s = context.scene.sigma
+    was = s.preview_lifted
+    s["preview_lifted"] = False
+    for o in bpy.data.objects:
+        if SHOWN in o:
+            _set_shown(o, None)
+    if was:
+        _hidden_layer(context, False)
+
+
+def lifted(context):
+    """Show it lifted: the lifted meshes shown (wherever they are kept, however hidden), the stock ones hidden, the
+    game's lift kit on the slot, the preview's wheels where the lifted springs hold them; off, all as it was."""
+    s = context.scene.sigma
+    up, down = lift_objects(context)
+    for o in up:
+        _set_shown(o, True if s.preview_lifted else None)
+    for o in down:
+        _set_shown(o, False if s.preview_lifted else None)
+    for o in bpy.data.objects:   # shown before but no longer listed
+        if SHOWN in o and not s.preview_lifted:
+            _set_shown(o, None)
+    _hidden_layer(context, s.preview_lifted)
+    bpy.ops.sigma.preview_build('EXEC_DEFAULT')   # the lift kit on its slot (or off it again)
 
 
 def ground_clearance(context):
@@ -403,8 +609,9 @@ class SIGMA_OT_preview_toggle(bpy.types.Operator):
 
 
 class SIGMA_OT_preview_randomize(bpy.types.Operator):
-    """Put different game parts on every slot and different wheels on the hubs, picked at random from all the game
-    has of each kind (as a player might fit them)"""
+    """On every slot and mount (doors, hood, trunk, seats, bumpers, engine, radiator, exhaust, lights, radio, gauges...),
+    a game part that fits it, picked at random from all the game has of that kind, as a player might fit them. Again
+    for another lot. The wheels stay the one picked under Wheels"""
     bl_idname = "sigma.preview_randomize"
     bl_label = "Randomize"
     bl_options = {'REGISTER'}
@@ -412,8 +619,7 @@ class SIGMA_OT_preview_randomize(bpy.types.Operator):
     def execute(self, context):
         s = context.scene.sigma
         s.preview_seed = random.randint(1, 1 << 30)
-        if not (s.preview_parts or s.preview_wheels):
-            s["preview_parts"] = s["preview_wheels"] = True
+        s["preview_parts"] = True
         return bpy.ops.sigma.preview_build('EXEC_DEFAULT')
 
 
@@ -443,6 +649,7 @@ class SIGMA_OT_straighten(bpy.types.Operator):
     def execute(self, context):
         from . import extras
         s = context.scene.sigma
+        shut(context)   # straightened shut, not open
         context.view_layer.update()
         for n in self.names.split("\n"):
             o = bpy.data.objects.get(n)
@@ -490,9 +697,7 @@ def turned_slots(context):
     for slot, kind in [(r.obj, sigmasrc.accepts_of(k_sec.code, r.role)) for r, k_sec in _slot_roles(s)]:
         if kind not in ("door", "hood", "trunk", "enginedoor"):
             continue
-        parent = slot.parent.matrix_world if slot.parent else Matrix()
-        q = (parent.inverted() @ slot.matrix_world).to_quaternion()
-        if q.angle > math.radians(1):
+        if closed_rotation(slot).angle > math.radians(1):
             out.append(slot)
     return list(dict.fromkeys(out))
 
@@ -518,10 +723,19 @@ def draw(l, c, wrap):
     row.operator("sigma.preview_randomize", icon='FILE_REFRESH')
     row.operator("sigma.preview_clear", text="", icon='X')
     l.prop(s, "preview_open", slider=True)
+    n = len(swinging(c))
+    if n:
+        l.label(text=f"Swings {n} slot{'s' if n != 1 else ''} as the game does: the slot turns, its part with it", icon='INFO')
+    else:
+        wrap(l, c, "Nothing to swing yet: a slot swings once it has a door, hood or lid (yours, made with the mesh "
+                   "button, or the preview's Game parts).", icon='INFO', boxes=2)
     if s.preview_wheels:
+        l.prop(s, "preview_wheel", text="Wheel")
+        l.row(align=True).prop(s, "preview_suspension", expand=True)
         gc = ground_clearance(c)
         if gc is not None:
-            l.label(text=f"Ground clearance: {gc * 100:.0f} cm (standing still, on its springs)", icon='MOD_FLOOR')
+            how = {'REST': "standing still, on its springs", 'UP': "bottomed out", 'DOWN': "fully extended"}[s.preview_suspension]
+            l.label(text=f"Ground clearance: {gc * 100:.0f} cm ({how})", icon='CON_FLOOR')
         if not hubs(c, script.read_script(s) or ""):
             wrap(l, c, "No wheel hubs yet: the wheels show once Wheels and suspension is in the car.", icon='INFO', boxes=2)
     wrap(l, c, "Only to look at: none of it is exported, and Export takes it away first. Change Tuning below and the "

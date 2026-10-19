@@ -14,7 +14,7 @@ namespace SigmaMod
     //                     "drive": "rear" | "front" | "all" } }   (chassis only)
     //
     // <object> is a Blender object name or a sigma_id. An object spec holds, applied in this order:
-    //   "layer": <number or layer name>, "tag": "<tag>"
+    //   "layer": <number or layer name>, "tag": "<tag>", "active": false (switched off until something switches it on)
     //   "add": [ "<Component>", ... ]                 components to add (skipped if already there)
     //   "collider": "convex" | { ... }                colliders from the object's mesh, see Colliders
     //   "instance": { "fsm": "<FsmName>", "where": { "<variable>": value }, "as": "<name>" }   (or a list)
@@ -41,7 +41,7 @@ namespace SigmaMod
     internal static class Overrides
     {
         private const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-        private static readonly HashSet<string> Reserved = new HashSet<string> { "nodes", "drive", "poi", "places", "replaces", "scale", "instance", "fsm", "add", "collider", "playmaker", "layer", "tag", "parent", "position", "rotation", "at", "align", "copy" };
+        private static readonly HashSet<string> Reserved = new HashSet<string> { "nodes", "drive", "poi", "places", "replaces", "scale", "instance", "fsm", "add", "collider", "playmaker", "layer", "tag", "active", "parent", "position", "rotation", "at", "align", "copy" };
 
         private static IEnumerable<KeyValuePair<GameObject, Dictionary<string, object>>> Objects(GameObject root, Dictionary<string, object> spec,
                                                                                                Func<string, GameObject> node, string where)
@@ -78,6 +78,9 @@ namespace SigmaMod
                 }
                 if (s.TryGetValue("tag", out var tv) && tv is string tag)
                     try { go.tag = tag; } catch (UnityException) { Plugin.Log.LogWarning($"{at}: tag '{tag}' is not defined in this game"); }
+                // switched off in the template (and so in every copy) until something switches it on: a lift kit's
+                // lifted suspension, an attachable's bolts shown once fitted. Not the root: the template itself is kept on
+                if (s.TryGetValue("active", out var acv) && acv is bool act && go != root) go.SetActive(act);
                 if (s.TryGetValue("add", out var av))
                 {
                     if (!(av is List<object> adds)) Plugin.Log.LogWarning($"{at}: 'add' must be a list of component type names");

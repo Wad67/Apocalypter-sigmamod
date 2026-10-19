@@ -19,6 +19,7 @@
 -- [solid]: a mesh you see in game and bump into. It needs colliders made from it (Make colliders, in its row).
 -- [hull]: a mesh you see in game and bump into: the game wraps its shape in one convex collider by itself.
 -- [state]: a mesh the game shows for one state and hides for the others (the key off, on, starting): hide it in Blender if you like, the game decides.
+-- {option}: a role the Sigma itself hasn't got: picked, its object is written into the line as that option.
 -- [hidden]: a mesh the game keeps hidden until something shows it (a lift kit, fitted). The add-on keeps it in a hidden collection, "Hidden in game", so it doesn't clutter the car in Blender either.
 local parts = require "sigma.parts"
 
@@ -63,7 +64,7 @@ parts.mount(g, "hinge_exhaust", "exhaust", { lookup = false })
 -- - suspension front? [mesh]: Front suspension. The stock front suspension's mesh, between the front wheels
 -- - suspension rear? [mesh]: Rear suspension. The stock rear suspension's mesh, between the rear wheels
 -- - drive shaft? [mesh]: Drive shaft. Its mesh, from the gearbox to the driven axle
--- - hinge_suspension? [spot]: Lift kit slot. Where a lift kit clips in: under the car, between the axles
+-- - hinge_suspension? [spot]: Lift kit slot. Where a lift kit clips in: under the car, between the axles. With one fitted, the wheels sit higher on longer, softer springs and further out, as the game's cars do
 -- - suspension_lifted? [hidden]: Lifted suspension. The suspension as it looks with a lift kit fitted; hidden until one is
 -- - suspension rear lifted? [hidden]: Lifted rear suspension. Hidden until a lift kit is fitted
 -- - spring? [hidden]: Lifted springs. Hidden until a lift kit is fitted
@@ -73,16 +74,16 @@ parts.wheel(g, "Wheel FL", { at = "wheel_hub" })
 parts.wheel(g, "Wheel FR", { at = "wheel_hub.001", rim_rotation = { 0, 180, 0 } })
 parts.wheel(g, "Wheel RL", { at = "wheel_hub.002" })
 parts.wheel(g, "Wheel RR", { at = "wheel_hub.003", rim_rotation = { 0, 180, 0 } })
-parts.slot(g, "hinge_suspension", "suspension", { box = { 0.64, 0.2, 0.19 } })
-for _, name in ipairs({ "suspension_lifted", "suspension rear lifted", "spring", "suspension_front_lifted", "undershield" }) do
-  g.nodes[name] = { MeshRenderer = { enabled = false } }
-end
+parts.lift_kit(g, { slot = "hinge_suspension", box = { 0.64, 0.2, 0.19 },
+  lifted = { "suspension_lifted", "suspension rear lifted", "spring", "suspension_front_lifted", "undershield" } })
 
 -- ## Fuel tank [required]
 -- A tank cans pour into and the engine burns from, with a filler cap that siphons. An engine without fuel is a
 -- paperweight.
 -- - fuel_tank [volume]: Tank. The tank's mesh: the box round it is where a fuel can pours in. Put it where the tank is
 -- - fuel_cap [clickable]: Filler cap. Where you fill up: look at it to see the fuel level; F opens it to siphon fuel out. On the body's side, over the tank
+-- - Siphon Zone? [collider] {hose_box}: Siphon hose end. An invisible box where a can is held to be filled while siphoning: the hose's end, at the can's height beside the car. Without it, a small one half a metre out from the filler cap
+-- - Siphon Hose? [state] {siphon_hose}: Siphon hose. A hose mesh from the filler cap to the siphon hose end, shown only while the cap is open and siphoning
 parts.fuel_tank(g, { tank = "fuel_tank", filler = "fuel_cap", litres = 20, capacity = 50, render = true })
 
 -- ## Dashboard and ignition [required]

@@ -214,8 +214,9 @@ def rename(code, mapping):
 # ---- the kit: the Sigma's script in sections, each made of roles (the objects it needs, by their names in the Sigma)
 
 class Role:
-    def __init__(self, name, flags, kind, text):
+    def __init__(self, name, flags, kind, text, option=None):
         self.name, self.optional, self.multi, self.kind = name, "?" in flags, "*" in flags, kind or "mesh"
+        self.option = option   # an option of the section's call the Sigma doesn't use: written only when picked
         label, _, rest = text.partition(". ")
         self.label, self.help = label.strip().rstrip("."), rest.strip()
 
@@ -231,7 +232,7 @@ class Section:
 
 
 HEADER = re.compile(r"^-- ## (.+?)(?: \[(required)\])?\s*$")
-ROLE = re.compile(r"^-- - (.+?)([?*]*)(?: \[(\w+)\])?: (.+)$")
+ROLE = re.compile(r"^-- - (.+?)([?*]*)(?: \[(\w+)\])?(?: \{(\w+)\})?: (.+)$")
 LEGEND = re.compile(r"^-- \[(\w+)\]: (.+)$")
 
 
@@ -257,7 +258,7 @@ def _parse_kit(path):
             continue
         r = ROLE.match(line)
         if r and not cur.code:
-            cur.roles.append(Role(r.group(1).strip(), r.group(2), r.group(3), r.group(4)))
+            cur.roles.append(Role(r.group(1).strip(), r.group(2), r.group(3), r.group(5), r.group(4)))
         elif line.startswith("-- ") and not cur.code and not cur.roles:
             cur.desc.append(line[3:])
         else:
@@ -343,8 +344,16 @@ def section_code(sec, picks, roles):
                 st = new
         if keep:
             out.append(st)
-    single = {n: got[0] for n, got in picks.items() if got and n in roles and not roles[n].role(n).multi and got[0] != n}
-    return rename("\n".join(out), single)
+    single = {n: got[0] for n, got in picks.items() if got and n in roles and not roles[n].role(n).multi and got[0] != n
+              and not roles[n].role(n).option}
+    code = rename("\n".join(out), single)
+    # options the Sigma hasn't got: what's picked for them goes into the section's call, before its table closes
+    extra = [f'{r.option} = "{picks[r.name][0]}"' for r in sec.roles if r.option and picks.get(r.name)]
+    if extra:
+        m = re.search(r"\}\s*\)([ \t]*(?:--[^\n]*)?)$", code, re.M)
+        if m:
+            code = code[:m.start()].rstrip() + ", " + ", ".join(extra) + " " + code[m.start():]
+    return code
 
 
 def kit_parents(glb):

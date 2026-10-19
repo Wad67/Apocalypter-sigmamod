@@ -250,15 +250,17 @@ The options are in the library's own comments (`SigmaMod/lua/sigma/parts.lua`); 
 | `colliders(g, ...)` | Solid colliders from the objects' meshes. | |
 | `numbered(base, n)` | `"Body"`, `"Body.001"` ... `"Body.00n"`, for `colliders`. | |
 | `lock_volumes(g, ...)` | Volumes that carry loose items with the vehicle. | |
+| `damage_zone(g, name, o)` | A zone that hurts the NPCs and animals it hits, as the game's own do: by speed, as a car's bumper (over 5 m/s), or a fixed hit and a rest, as its spikes. Its object's mesh is the zone (not drawn). On a vehicle, or on an attachable once fitted. | `per_speed`, `min_speed` (5), `damage`, `cooldown` (1), `anywhere`, `shape`, `sound`, `volume` |
 | `mount(g, name, accepts, o)` | Where a game part fits (`"engine"`, `"radiator"`, ...). | `at` (a marker), `lookup`, `collider` |
 | `slot(g, name, accepts, o)` | Where a part clips in (dashboard `"gauge"`, `"radio"`, `"headlight"`, `"seat"`). | `use`, `at`, `align`, `shape`, `layer`, `marker`, `box` or `sphere` (a trigger of that size, for an empty hinge with no mesh) |
 | `ignition(g, o)` | A key: click on/off, hold to crank. | `switch`, `fuel`, `engine`, `key`, `off` / `on` / `start` (lamps), `dashboard` |
-| `fuel_tank(g, o)` | A tank cans pour into, burning fuel, with a filler that siphons. | `tank`, `filler`, `litres`, `capacity`, `fuel`, `hose`, `hose_at`, `hose_position`, `siphon_hose`, `render`, `saved` |
+| `fuel_tank(g, o)` | A tank cans pour into, burning fuel, with a filler that siphons. | `tank`, `filler`, `litres`, `capacity`, `fuel`, `hose`, `hose_at`, `hose_position`, `hose_box` (an object of your own as the siphon hose end), `siphon_hose`, `render`, `saved` |
 | `engine_sound(g, o)` | The engine's sound where it sits. | `at` |
 | `lever(g, o)` | A stepped lever writing a property. | `label`, `mount`, `handle`, `collider`, `target`, `property`, `more` / `less`, `step`, `min`, `angle`, `pivot` |
 | `toggle_lever(g, o)` | A two-position lever (a handbrake). | `label`, `collider`, `target`, `property`, `angle`, `mesh`, `material`, `pivot_position` |
 | `gear_lever(g, o)` | A gear shifter and its fitted lever's lean. | `collider`, `joint`, `mount`, `gate` |
 | `wheel(g, name, o)` | A hub game wheels fit on. | `at`, `hub`, `rim`, `rim_rotation`, `radius`, `width`, `mass`, `grip`, `spring`, `stiffness`, `damper`, `extra` |
+| `lift_kit(g, o)` | A lift kit slot: with one of the game's lift kits fitted, the wheels get more spring travel, softer damping and a wider track, as the game's cars do, and the lifted meshes show. | `slot`, `box`, `wheels`, `lifted`, `stock`, `spring`, `damper`, `widen` |
 | `free_wheel(g, name, o)` | A wheel of the vehicle's own. | `mesh`, `spin`, `position`, `radius`, `width`, `mass`, `spring`, `stiffness`, `damper`, `rolling`, `extra` |
 | `flywheel(g, name, o)` | A flywheel or pulley (Engine Sim's drag and rim friction). | `mesh`, `spin`, `position`, `radius`, `width`, `mass` |
 | `coupling(g, name, o)` | Two wheels turned together (Engine Sim). | `a`, `b`, `ratio`, `capacity`, `engagement` |
@@ -275,7 +277,7 @@ The options are in the library's own comments (`SigmaMod/lua/sigma/parts.lua`); 
 | `saved(g, name, suffix, fsm, var)` | An FSM float kept with the save. | |
 | `tooltip(g, name, o)` | A readout of components' properties on the HUD. | `source`, `name`, `line2`, `line3`, `use`, `sources`, `label` |
 | `item(o)` | A game item made into another: its ID and name. The whole template. | `id`, `name` |
-| `attachable(g, o)` | A loose item that attaches to vehicles as the game's metal plates do: Use against a vehicle fixes it there, the game's tools take it off. With several colliders, built as the game builds a car door, so it picks up whole. | `mass`, `id`, `colliders` (objects whose meshes become its colliders), `collider_groups` (objects already carrying colliders, from an export), `grip` (`center`, `radius`) |
+| `attachable(g, o)` | A loose item that attaches to vehicles as the game's metal plates do: Use against a vehicle fixes it there; it comes off by hand (item ID `attachable`, the only one the game's by-hand removal looks for) or, with `tools`, only with the toolbox. With colliders of its own, built as the game builds a car door, so it picks up whole. What changes when fitted: objects hidden or shown, its layers. Damage zones hurt what they hit once it's fitted; lock volumes carry loose things (a crate, a basket). | `mass`, `id`, `tools`, `solid` (meshes seen and collided with), `colliders` (collider-only meshes), `collider_groups` (objects already carrying colliders, from an export), `fitted_off`, `fitted_on`, `layers` (`loose`, `fitted`: names or numbers; it's picked up only on Item, taken off only on Car, Item or SeeTrough), `damage_zones` (names, or `{ name, damage = }` / `{ name, per_speed = }`), `lock_volumes`, `grip` (`center`, `radius`) |
 
 A mod can ship its own library: a `.lua` in its `sigma_assets` folder that isn't an asset's own script is a library
 its own assets can `require` (Apoc-Air's `apocair/flight.lua`). Another mod's libraries aren't found: only SigmaMod's

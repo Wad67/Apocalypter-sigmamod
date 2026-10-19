@@ -27,6 +27,11 @@ local function fsm(spec, name, body)
   spec.playmaker = spec.playmaker or {}
   spec.playmaker[name] = body
 end
+local function cat(...)   -- lists one after another
+  local out = {}
+  for _, l in ipairs({ ... }) do for _, v in ipairs(l) do table.insert(out, v) end end
+  return out
+end
 local function add(spec, ...)
   spec.add = spec.add or {}
   for _, c in ipairs({ ... }) do table.insert(spec.add, c) end
@@ -564,10 +569,12 @@ end
 -- A fuel tank (the volume a can pours into; SigmaMod.Parts.FuelTank burns its fuel) with its filler cap (SigmaMod.Parts.Filler:
 -- the level shown, F opens it to siphon the tank into a can held to the hose end).
 --   tank, filler (object names), litres (in it new), capacity, fuel ("Gasoline" or "Diesel"),
---   hose (the hose end's name, made at the filler: hose_at, hose_position), siphon_hose (a hose mesh shown while siphoning),
+--   hose (the hose end's name, made at the filler: hose_at, hose_position), hose_box (an object of your own instead:
+--   its mesh's box is the hose end, where a can is held to be filled; not drawn), siphon_hose (a hose mesh shown while
+--   siphoning),
 --   render (false: the tank's mesh is only its volume), saved (false: the level isn't kept with the save)
 function parts.fuel_tank(g, o)
-  local hose = o.hose or (o.tank .. " Hose End")
+  local hose = o.hose_box or o.hose or (o.tank .. " Hose End")
   local spec = merge(node(g, o.tank), { layer = 2, tag = o.fuel or "Gasoline", collider = { shape = "box", trigger = true, render = o.render } })
   -- what the game and other mods see: the level (a can pours in by itself) and the rate the fitted engine writes
   fsm(spec, "LiquidAmount", { variables = { float = { Liquid = o.litres or 30, LiquidCapacity = o.capacity or 60 }, object = { FuelModule = null } },
@@ -580,8 +587,12 @@ function parts.fuel_tank(g, o)
   cap.AudioSource = { playOnAwake = false, spatialBlend = 1 }
   cap["SigmaMod.Parts.Filler"] = { tank = o.tank, hose = hose, hoseMesh = o.siphon_hose,
     cap = "asset:AudioClip/gastank_cap1", filling = "asset:AudioClip/liquid_filling2" }
-  g.nodes[hose] = { parent = "root", layer = 2, add = { "CapsuleCollider" }, CapsuleCollider = { isTrigger = true, radius = 0.1, height = 0.5, enabled = false },
-                    at = o.hose_at or o.filler, position = o.hose_position or { -0.5, 0, 0 } }
+  if o.hose_box then   -- the artist's own box: off until the cap is opened (the filler switches it)
+    merge(node(g, o.hose_box), { layer = 2, collider = { shape = "box", trigger = true } })
+  else
+    g.nodes[hose] = { parent = "root", layer = 2, add = { "CapsuleCollider" }, CapsuleCollider = { isTrigger = true, radius = 0.1, height = 0.5, enabled = false },
+                      at = o.hose_at or o.filler, position = o.hose_position or { -0.5, 0, 0 } }
+  end
   fsm(g, "getFuel", { variables = { gameObject = { Fuel = o.tank } }, states = { idle = {} } })
 end
 
@@ -638,6 +649,30 @@ function parts.wheel(g, name, o)
                                       radius = r, mass = m, grip = grip }
   g.nodes[hub] = { parent = name }
   g.nodes[rim] = { parent = hub, add = { "MeshFilter", "MeshRenderer" }, rotation = o.rim_rotation }
+end
+
+-- A lift kit's slot: the game's lift kits clip in, and with one fitted the wheels get the lifted suspension, as the
+-- game's own cars do (SigmaMod.Parts.LiftKit): more spring travel, softer damping, the wheels moved out (a wider
+-- track); the lifted meshes show, the stock ones hide. Taken off, back to stock (the wheels as the car makes them).
+--   slot (its empty, default "hinge_suspension"), box (its click box: true round its mesh, or a size), wheels (the
+--   wheels it lifts: default every parts.wheel made before it), lifted (meshes shown only with a kit: hidden until
+--   one is fitted), stock (meshes hidden with a kit), spring (lifted travel, m; default the stock x 1.55, the game's
+--   0.2 to 0.31), damper (lifted; default the stock x 0.5, the game's 3000 to 1500), widen (m outward each side, 0.22)
+function parts.lift_kit(g, o)
+  o = o or {}
+  local slot = o.slot or "hinge_suspension"
+  parts.slot(g, slot, "suspension", { box = o.box == nil and true or o.box })
+  local wheels = o.wheels
+  if not wheels then
+    wheels = {}
+    for name, n in pairs(g.nodes) do if n["SigmaMod.Parts.WheelHub"] then table.insert(wheels, name) end end
+    table.sort(wheels)
+  end
+  local spec = node(g, slot)
+  add(spec, "SigmaMod.Parts.LiftKit")
+  spec["SigmaMod.Parts.LiftKit"] = { wheels = wheels, lifted = o.lifted, stock = o.stock,
+    spring = o.spring or 0, damper = o.damper or 0, widen = o.widen or 0.22 }
+  for _, name in ipairs(o.lifted or {}) do node(g, name).active = false end   -- shown once a kit is fitted
 end
 
 -- A wheel of the vehicle's own (not a part): the WheelController at its mesh, which turns on an empty made there.
@@ -1675,27 +1710,66 @@ function parts.car_input(g, o)
   })
 end
 
--- A loose item that attaches to vehicles the way the game's attachables do (its metal plates): held against a
--- vehicle's part, Use fixes it there (a fitted part: parented to that part, no body of its own, moving with the
--- vehicle); the game's tools take it off again, and it falls loose. Its name on screen while looked at.
---   mass (kg, default 10), id (the game's item ID, default "attachable")
---   colliders (Blender objects whose meshes become its colliders: convex, not drawn), collider_groups (objects that
---   already carry its colliders, e.g. an exported vehicle's "colliders"): with either, it is built as the game builds
+-- The game's physics layers, by their names in the game (its TagManager): parts that take a layer take a name or a number.
+parts.LAYERS = { Default = 0, TransparentFX = 1, ["Ignore Raycast"] = 2, Water = 4, UI = 5, Player = 6, Drive = 7, Car = 8,
+  Item = 9, Actor = 10, Door = 11, Weapon = 12, Hinge = 13, Ground = 14, Sleep = 15, SeeTrough = 16, CarDebug = 17,
+  PhysicsLock = 18, HingeAdjustVisible = 19, Hitch = 20, Food = 21, Map = 22 }
+local function layer(v, default)
+  if v == nil then return default end
+  if type(v) == "number" then return v end
+  return parts.LAYERS[v] or error("unknown layer '" .. tostring(v) .. "' (one of the game's: Car, Item, SeeTrough, Default...)")
+end
+parts.layer = layer
+
+-- A damage zone (SigmaMod.Parts.DamageZone): an actor (an NPC, an animal) that comes into it is hurt, as the game's own
+-- zones hurt: by speed, as a car's bumper (the game's: over 5 m/s, 3 per m/s), or a fixed hit and a rest, as its
+-- spikes (4, a second). Its object's mesh is the zone (a box round it: shape "box", or "sphere"; not drawn), on the
+-- Ignore Raycast layer, as the game's are. On a vehicle or on an attachable, which hurts only once fitted to one.
+--   per_speed (damage per m/s), min_speed (default 5), damage (a fixed hit instead), cooldown (default 1),
+--   anywhere (true: hurts loose too), shape ("convex" default, "box", "sphere"), sound (default the spikes' for a
+--   fixed hit, none by speed), volume
+function parts.damage_zone(g, name, o)
+  o = o or {}
+  local spec = merge(node(g, name), { layer = 2, collider = { shape = o.shape or "convex", trigger = true } })
+  add(spec, "SigmaMod.Parts.DamageZone")
+  spec["SigmaMod.Parts.DamageZone"] = { perSpeed = o.per_speed or 0, minSpeed = o.min_speed or 5, damage = o.damage or 0,
+    cooldown = o.cooldown or 1, onVehicle = not o.anywhere, volume = o.volume or 0.7,
+    sound = o.sound or ((o.damage or 0) > 0 and not o.per_speed and "asset:AudioClip/knife_hit" or nil) }
+end
+
+-- A loose item that attaches to vehicles the way the game's attachables do (its metal plates, spikes, crates): held
+-- against a vehicle's part, Use fixes it there (a fitted part: parented to that part, no body of its own, moving with
+-- the vehicle); taken off again (by hand, or with the toolbox), it falls loose. Its name on screen while looked at.
+--   mass (kg, default 10), id (the game's item ID: "attachable", default, comes off by hand; any other needs the
+--   toolbox), tools (true: needs the toolbox to come off; id then defaults to "attachable_bolted")
+--   solid (Blender meshes that are seen and collided with: each its own convex collider, drawn)
+--   colliders (Blender objects whose meshes are only colliders: convex, not drawn), collider_groups (objects that
+--   already carry its colliders, e.g. an export's "colliders"): with any of these three, it is built as the game builds
 --   an item of many colliders (a car door): those are switched off while it is held, and the item itself has a trigger
 --   box round its mesh, which the game's grab finds before anything inside it, and a small solid sphere, the collider
 --   the game makes a trigger while it is held: grip = { center = { x, y, z }, radius } (default its origin, 0.1).
---   Without either, its own mesh is its collider (convex).
+--   With none, its own mesh is its collider (convex).
+--   fitted_off (objects switched off while it is fitted: a handle, packaging, a collider in the way), fitted_on (objects
+--   switched on only while it is fitted: bolts, a strap)
+--   layers = { loose = "Item", fitted = "Car" }: its layer (and its colliders') loose and fitted, by name or number.
+--   The game takes things off (by hand or with the toolbox) only on Car, Item or SeeTrough, and shows their name only
+--   on Default, Car, Item, Hinge or Food; fitted on another layer it can't be taken off again.
+--   damage_zones (objects: zones that hurt what they hit once it's fitted, see parts.damage_zone; an entry can be
+--   { "Name", damage = 4 } or { "Name", per_speed = 3 }), lock_volumes (objects: boxes that loose things inside ride
+--   along in, see parts.lock_volumes: a crate, a roof basket)
 function parts.attachable(g, o)
   o = o or {}
   g.nodes = g.nodes or {}
-  merge(g, { layer = 9, tag = "vehPartRemoved" })   -- a loose part
+  local loose, fitted = layer((o.layers or {}).loose, 9), layer((o.layers or {}).fitted, 8)
+  merge(g, { layer = loose, tag = "vehPartRemoved" })   -- a loose part
   add(g, "Rigidbody")
   g.Rigidbody = merge(g.Rigidbody or {}, { mass = o.mass or 10, collisionDetectionMode = "Continuous" })
 
   local held = {}   -- what is switched off while it is held
+  for _, c in ipairs(o.solid or {}) do node(g, c).collider = { shape = "convex", render = true }; table.insert(held, c) end
   for _, c in ipairs(o.colliders or {}) do node(g, c).collider = "convex"; table.insert(held, c) end
-  for _, c in ipairs(o.collider_groups or {}) do table.insert(held, c) end
-  if #held > 0 then
+  local groups = o.collider_groups or {}
+  if #held + #groups > 0 then
     local grip = o.grip or {}
     add(g, "SphereCollider")
     g.SphereCollider = { center = grip.center or { 0, 0, 0 }, radius = grip.radius or 0.1 }
@@ -1703,6 +1777,7 @@ function parts.attachable(g, o)
     local function switch(on)
       local actions = {}
       for _, c in ipairs(held) do table.insert(actions, { ActivateGameObject = { gameObject = c, activate = on } }) end
+      for _, c in ipairs(groups) do table.insert(actions, { ActivateGameObject = { gameObject = c, activate = on } }) end
       return actions
     end
     -- the game's grab sends these
@@ -1714,8 +1789,27 @@ function parts.attachable(g, o)
   else
     g.collider = { shape = "convex", render = true }
   end
+  for _, z in ipairs(o.damage_zones or {}) do
+    if type(z) == "table" then parts.damage_zone(g, z[1], z) else parts.damage_zone(g, z, { damage = 4 }) end
+  end
+  if o.lock_volumes then parts.lock_volumes(g, (table.unpack or unpack)(o.lock_volumes)) end
 
-  fsm(g, "ID", { variables = { string = { ID = o.id or "attachable" } }, states = { ID = {} } })
+  -- what changes between loose and fitted: its layer and its colliders', what is shown
+  local function as(l, off, on)
+    local actions = {}
+    if o.layers then   -- set on every change (a fitted part loaded from a save too), its colliders with it
+      table.insert(actions, { SetLayer = { gameObject = "owner", layer = l } })
+      for _, c in ipairs(held) do table.insert(actions, { SetLayer = { gameObject = c, layer = l } }) end
+    end
+    for _, c in ipairs(off) do table.insert(actions, { ActivateGameObject = { gameObject = c, activate = false } }) end
+    for _, c in ipairs(on) do table.insert(actions, { ActivateGameObject = { gameObject = c, activate = true } }) end
+    return actions
+  end
+  local as_fitted = as(fitted, o.fitted_off or {}, o.fitted_on or {})
+  local as_loose = as(loose, o.fitted_on or {}, o.fitted_off or {})
+  for _, c in ipairs(o.fitted_on or {}) do node(g, c).active = false end   -- made loose: shown once fitted
+
+  fsm(g, "ID", { variables = { string = { ID = o.id or (o.tools and "attachable_bolted" or "attachable") } }, states = { ID = {} } })
   fsm(g, "ItemName", {
     variables = { string = { ItemName = "" } },
     globalEvents = { "OverItem", "OffItem" },
@@ -1759,7 +1853,7 @@ function parts.attachable(g, o)
           { SendEvent = { eventTarget = "{PlayerCamera}/GrabItem", sendEvent = "not_Hold" } },
           { SendEvent = { eventTarget = "{UI_Canvas}", sendEvent = "Cursor_Point" } },
           { SetParent = { gameObject = "owner", parent = "{CarPart}", worldPositionStays = true } },
-          { SetLayer = { gameObject = "owner", layer = 8 } },
+          { SetLayer = { gameObject = "owner", layer = fitted } },
           { SetTag = { gameObject = "owner", tag = "vehPart" } },
           { NextFrameEvent = { sendEvent = "back" } },
         },
@@ -1776,7 +1870,7 @@ function parts.attachable(g, o)
       idle = {},
       ["de Attach"] = {
         actions = {
-          { SetLayer = { gameObject = "owner", layer = 9 } },
+          { SetLayer = { gameObject = "owner", layer = loose } },
           { SetTag = { gameObject = "owner", tag = "vehPartRemoved" } },
         },
         transitions = { FINISHED = "idle" },
@@ -1802,15 +1896,16 @@ function parts.attachable(g, o)
         transitions = { next = "vehPartRemoved" },
       },
       vehPartRemoved = {
-        actions = {
+        actions = cat({
           { GameObjectCompareTag = { gameObject = "{owner}", tag = "vehPart", trueEvent = "bolted" } },
           { SetParent = { gameObject = "owner", parent = null, worldPositionStays = true } },
           { EnableFSM = { gameObject = "owner", fsmName = "Attach", enable = true, resetOnExit = false } },
+        }, as_loose, {
           { HasRigidBody = { gameObject = "owner", found = "{}", foundEvent = "loose" } },
           { AddComponent = { gameObject = "owner", component = "UnityEngine.Rigidbody", storeComponent = "{Rigidbody}" } },
           { SetMass = { gameObject = "owner", mass = "{mass}" } },
           { SetProperties = { on = "{Rigidbody}", collisionDetectionMode = "Continuous" } },
-        },
+        }),
         transitions = { bolted = "vehPart", loose = "loose", FINISHED = "loose" },
       },
       loose = {
@@ -1820,11 +1915,11 @@ function parts.attachable(g, o)
         transitions = { next = "vehPart" },
       },
       vehPart = {
-        actions = {
+        actions = cat(as_fitted, {
           { DestroyComponent = { gameObject = "owner", component = "UnityEngine.Rigidbody" } },
           { EnableFSM = { gameObject = "owner", fsmName = "Attach", enable = false, resetOnExit = false } },
           { GameObjectCompareTag = { gameObject = "{owner}", tag = "vehPart", falseEvent = "next", everyFrame = true } },
-        },
+        }),
         transitions = { next = "vehPartRemoved" },
       },
     },

@@ -65,6 +65,15 @@ def run(context):
     if s.root.name not in context.scene.objects:
         add(ERROR, f"Your asset's top object '{s.root.name}' left this scene. Bring it back, or pick another.",
             "sigma.use_active_as_root", "Use the selected object", key="rootgone")
+    if s.asset_id and paths.asset_dir(s):
+        ok, why, mod = paths.loads(s)
+        if not ok:
+            add(WARNING, f"Where it goes, the game won't load it: {why}. Step 3.",
+                "sigma.load_folder" if mod else "sigma.open_step", "Make the game load it" if mod else "Show me",
+                {} if mod else {"step": 2}, key="notloaded")
+        if s.last_path and os.path.normcase(s.last_path) != os.path.normcase(paths.asset_glb(s)) and os.path.isfile(s.last_path):
+            add(WARNING, f"Your last export is still at {s.last_path}, and the next goes somewhere else: the game "
+                         "would load it twice. Move it.", "sigma.move_asset", "Move it here", key="moved")
     if not s.asset_id:
         add(ERROR, "Your asset has no id. The game can't load 'that thing I made'. Step 3: name it, like my_truck.", key="noid")
     elif not ID_RE.match(s.asset_id):
@@ -133,6 +142,21 @@ def run(context):
             _kit_checks(s, add)
 
     _scene_checks(context, s, add)
+    if kind == 'ATTACHABLE':
+        from . import attach
+        if attach.current(context):
+            for level, text in attach.problems(context):
+                add(WARNING, text, "sigma.open_step", "Show me", {"step": 3}, key="attach:" + text[:30])
+    if kind == 'CAR' and s.root is not None:
+        from . import extras, kit as kit_
+        picked = {r.obj for r in s.roles if r.obj is not None} | set(extras.objects(s))
+        swingy = [o for o in s.root.children_recursive if o.type == 'MESH' and o not in picked and o.get("sigma") != "collider"
+                  and not o.get(kit_.TAG) and re.search(r"door|hood|bonnet|trunk|boot|tailgate|lid", o.name, re.I)]
+        if swingy:
+            add(INFO, f"{_names(swingy)} look{'s' if len(swingy) == 1 else ''} like {'a door or lid' if len(swingy) == 1 else 'doors or lids'}, "
+                      "but in the body: in game it won't open. To make it one: select it, then the mesh button on a "
+                      "door, hood or trunk slot (Seats, doors and body panels).", "sigma.select_objects", "Select",
+                {"names": "\n".join(o.name for o in swingy)}, key="bodydoors")
     if kind == 'CAR':
         from . import preview
         turned = preview.turned_slots(context)

@@ -7,7 +7,7 @@ import os
 import re
 
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 from . import checks, paths, script, sigmasrc
 
@@ -176,6 +176,12 @@ def fitting_children(obj, role, k):
 
 
 def migrate(s, k):
+    from . import extras
+    extras.prune(s)   # parts whose object was deleted
+    _migrate(s, k)
+
+
+def _migrate(s, k):
     """Picks saved under a role the kit no longer has: an artist's pick moves to the role that took the name over (the
     passenger seat's slot is one of the seat slots now); a guess goes, to be found again."""
     owner = {}
@@ -365,12 +371,15 @@ def _wrap(text, width=110):
 
 # ---- the Sigma's objects, brought in
 
-def body_box(s):
+def body_box(s, local=False):
+    """(low, high) corners of the body's box: in the world, or (local) in the car's own frame, as its top object is
+    turned (what fits parts to a car that isn't lying along the world's axes)."""
     pts = []
     picked = {r.obj for r in s.roles if r.obj is not None}
+    to = s.root.matrix_world.inverted() if local and s.root is not None else Matrix()
     for o in checks.asset_objects(s):
         if o.type == 'MESH' and not o.get(TAG) and o.get("sigma") != "collider" and o not in picked:
-            pts += [o.matrix_world @ Vector(c) for c in o.bound_box]
+            pts += [to @ o.matrix_world @ Vector(c) for c in o.bound_box]
     if not pts:
         return None
     lo = Vector([min(p[i] for p in pts) for i in range(3)])
@@ -449,7 +458,7 @@ def bring(context, k, roles):
     if not want:
         return 0
     context.view_layer.update()   # every matrix current before positions are read off them
-    box = body_box(s)
+    box = body_box(s, local=True)   # in the car's frame: the Sigma's objects go on as the car is turned
     if box is None:
         raise RuntimeError("Model a body first. I can't fit wheels to a vibe")
     parents = sigmasrc.kit_parents(k["glb"])
@@ -472,11 +481,11 @@ def bring(context, k, roles):
         while p_ and p_ not in names:
             p_ = parents.get(p_)
         if p_ is None:   # placed where the Sigma has it, in proportion; under another brought object it moves with it
-            m = o.matrix_world.copy()
+            m = o.matrix_world.copy()   # on the Sigma, as on its own top object
             rel = [(m.translation[i] - rlo[i]) / max(rhi[i] - rlo[i], 1e-6) for i in range(3)]
             m.translation = Vector([lo[i] + rel[i] * (hi[i] - lo[i]) for i in range(3)])
             o.parent = s.root
-            o.matrix_world = m
+            o.matrix_world = s.root.matrix_world @ m
         for x in [o] + list(o.children_recursive):
             keep.add(x)
             x[TAG] = sec.title
@@ -643,6 +652,17 @@ class SIGMA_OT_make_role_object(bpy.types.Operator):
 
     role: bpy.props.StringProperty()
 
+    @classmethod
+    def description(cls, context, props):
+        k = sigmasrc.kit()
+        role = role_of(k, props.role) if k else None
+        if role is None:
+            return cls.__doc__
+        what = role.label[:1].lower() + role.label[1:]
+        return (f"Add a {what}: made at the 3D cursor, under your asset, straight (not turned), and picked. Then move it "
+                "where it belongs" + (" (for a door: at its front edge, where it hangs). Put the 3D cursor there first "
+                "(Shift+right click) and it lands in place" if role.kind == 'spot' else ""))
+
     def execute(self, context):
         s = context.scene.sigma
         k = _kit_or_report(self)
@@ -664,7 +684,9 @@ class SIGMA_OT_make_role_object(bpy.types.Operator):
         for c in s.root.users_collection or [context.scene.collection]:
             c.objects.link(o)
         o.parent = s.root
-        o.matrix_world.translation = context.scene.cursor.location
+        context.view_layer.update()
+        _, rot, _ = s.root.matrix_world.decompose()   # straight on the car: turned as the car is, nothing more
+        o.matrix_world = Matrix.LocRotScale(context.scene.cursor.location, rot, Vector((1, 1, 1)))
         sec = k["roles"][self.role]
         empty = [r for r in items(s, self.role) if r.obj is None]
         if empty:
@@ -740,7 +762,8 @@ def explain(k, role):
     need = ("any number, or none" if role.multi else "you can leave it out") if role.optional else \
         ("at least one: the car doesn't work without it" if role.multi else "needed: the car doesn't work without it")
     kind = k["kinds"].get(role.kind, "")
-    return " ".join(x for x in [role.label + ".", (role.help + ".") if role.help else "", f"({need.capitalize()}.)",
+    own = "The Sigma hasn't got one: make yours (+) or pick it." if role.option else ""
+    return " ".join(x for x in [role.label + ".", (role.help + ".") if role.help else "", f"({need.capitalize()}.)", own,
                                 f"{role.kind.capitalize()}: {kind}" if kind else ""] if x)
 
 

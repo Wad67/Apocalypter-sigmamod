@@ -6,7 +6,7 @@ import os
 import re
 
 import bpy
-from mathutils import Matrix
+from mathutils import Matrix, Vector
 
 from . import assets, checks, gamedata, jobs, paths, script, sigmasrc
 
@@ -38,12 +38,71 @@ class SigmaExtra(bpy.types.PropertyGroup):
     hinge: bpy.props.PointerProperty(type=bpy.types.Object, description="The car's slot it was made at")
     accepts: bpy.props.StringProperty(description="What kind of part it is (door, hood, seat...)")
     donor: bpy.props.StringProperty(description="The game part it started as")
+    open_rot: bpy.props.FloatVectorProperty(size=3, description="How it opens: the rotation (Unity degrees) its "
+                                                                 "DoorOpen turns its slot to")
+    open_set: bpy.props.BoolProperty(description="Flipped by the artist: opens as open_rot says, not the way out")
+
+
+def _closed(context, e):
+    """(the slot's world matrix shut, the part's mesh centre in the world shut)."""
+    from . import preview
+    slot = e.hinge
+    parent = slot.parent.matrix_world if slot.parent else Matrix()
+    loc, _, sc = (parent.inverted() @ slot.matrix_world).decompose()
+    shut = parent @ Matrix.LocRotScale(loc, preview.closed_rotation(slot), sc)
+    meshes = [o for o in [e.root] + list(e.root.children_recursive) if o.type == 'MESH' and o.get("sigma") != "collider"]
+    pts = [o.matrix_world @ Vector(c) for o in meshes for c in o.bound_box] or [e.root.matrix_world.translation]
+    centre = sum(pts, Vector()) / len(pts)
+    if preview.REL in e.root:   # posed open by the preview: where it is shut
+        centre = shut @ Matrix(e.root[preview.REL]) @ e.root.matrix_world.inverted() @ centre
+    return shut, centre
+
+
+def swing(context, e):
+    """How this part opens (Unity degrees): the game part's own swing, the way that takes it away from the car's
+    middle (a door outward on whichever side and edge it hangs, a hood or lid up), or as the artist flipped it."""
+    from . import kit, preview
+    base = preview.open_rotation(e.donor)
+    if not base or e.hinge is None or e.root is None:
+        return None
+    if e.open_set:
+        return list(e.open_rot)
+    box = kit.body_box(context.scene.sigma)
+    if box is None:
+        return base
+    middle = (box[0] + box[1]) / 2
+    shut, centre = _closed(context, e)
+    parent = e.hinge.parent.matrix_world if e.hinge.parent else Matrix()
+    loc, _, sc = (parent.inverted() @ shut).decompose()
+
+    def away(rot):
+        opened = parent @ Matrix.LocRotScale(loc, preview.unity_euler(rot), sc)
+        return ((opened @ shut.inverted() @ centre) - middle).length
+
+    return list(max((base, [-x for x in base]), key=away))   # worked out each time: the mesh may still change
+
+
+def alive(e):
+    """Whether the part's top object is still in the scene. Deleted in Blender, an object the part points at is only
+    taken out of the scene (the pointer keeps it), so the part would hang on to an object nobody can see or select."""
+    scene = bpy.context.scene
+    return e.root is not None and scene is not None and scene.objects.get(e.root.name) == e.root
+
+
+def prune(s):
+    """Parts whose top object was deleted: gone, and their blocks out of the script. True if any went."""
+    gone = [i for i, e in enumerate(s.extras) if not alive(e)]
+    for i in reversed(gone):
+        s.extras.remove(i)
+    if gone:
+        write_blocks(s)
+    return bool(gone)
 
 
 def for_slot(s, hinge, role=None):
     """The part made at this slot object (or, from a file made before a role could have many slots, at the role)."""
-    return next((e for e in s.extras if e.hinge == hinge), None) or \
-        next((e for e in s.extras if e.hinge is None and e.slot in (hinge.name, role)), None)
+    return next((e for e in s.extras if e.hinge == hinge and alive(e)), None) or \
+        next((e for e in s.extras if e.hinge is None and e.slot in (hinge.name, role) and alive(e)), None)
 
 
 def objects(s):
@@ -58,8 +117,15 @@ def objects(s):
 
 def block(e):
     from .script import _q
+    from . import preview
+    extra = ""
+    act = preview.open_action(e.donor)
+    rot = swing(bpy.context, e) if act else None
+    if act and rot and [round(x, 3) for x in rot] != [round(x, 3) for x in act[1]]:   # opens its own way, not the game part's
+        v = ", ".join(f"{x + 0.0:g}" for x in rot)   # (no "-0")
+        extra = f', fsm = {{ DoorOpen = {{ ["{act[0]}/iTweenRotateTo.vectorRotation"] = {{ {v} }} }} }}'
     return "\n".join([BLOCK + e.asset_id, NOTE,
-                      f'template {_q(e.asset_id)} {{ model = {_q(e.root.name)}, name = {_q(e.display_name or e.asset_id)} }}', ""])
+                      f'template {_q(e.asset_id)} {{ model = {_q(e.root.name)}, name = {_q(e.display_name or e.asset_id)}{extra} }}', ""])
 
 
 def _spans(lines):
@@ -87,7 +153,7 @@ def write_blocks(s):
         script.save_text(t)
     src = open(path, encoding="utf-8").read()
     lines = src.rstrip("\n").split("\n") + [""]
-    want = {e.asset_id: block(e) for e in s.extras if e.root is not None and e.asset_id}
+    want = {e.asset_id: block(e) for e in s.extras if alive(e) and e.asset_id}
     for pid, (a, b) in sorted(_spans(lines).items(), key=lambda kv: -kv[1][0]):
         if pid not in want:
             del lines[a:b]
@@ -320,6 +386,64 @@ class SIGMA_OT_replace_part_colliders(bpy.types.Operator):
         return bpy.ops.sigma.make_colliders('INVOKE_DEFAULT', target=swapped.name, replace_in=top.name)
 
 
+class SIGMA_OT_flip_swing(bpy.types.Operator):
+    """Swing it the other way about its hinge (into the car becomes out of it, up becomes down). The preview and the
+    game both follow: it's written into the part's template"""
+    bl_idname = "sigma.flip_swing"
+    bl_label = "Flip the swing"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    part: bpy.props.StringProperty(options={'HIDDEN'})
+
+    def execute(self, context):
+        from . import preview
+        s = context.scene.sigma
+        e = next((x for x in s.extras if x.asset_id == self.part), None)
+        rot = swing(context, e) if e is not None else None
+        if not rot:
+            self.report({'INFO'}, "This part doesn't swing open")
+            return {'CANCELLED'}
+        frac = s.preview_open
+        if frac > 0.001:
+            preview.shut(context)   # flipped shut, then opened again the new way
+        e.open_rot, e.open_set = [-x for x in rot], True
+        write_blocks(s)
+        if frac > 0.001:
+            s.preview_open = frac
+        return {'FINISHED'}
+
+
+class SIGMA_OT_clear_slot_part(bpy.types.Operator):
+    """Take this slot's part away: its objects deleted and its template out of the script, so the slot is empty
+    again (Ctrl+Z brings it back)"""
+    bl_idname = "sigma.clear_slot_part"
+    bl_label = "Clear the slot"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    part: bpy.props.StringProperty(options={'HIDDEN'})
+
+    @classmethod
+    def description(cls, context, props):
+        return (f"Take '{props.part}' off this slot: its objects deleted and its template out of the script, so the "
+                "slot is empty again (Ctrl+Z brings it back). To keep the objects, use Take out in Parts that go with "
+                "your car")
+
+    def execute(self, context):
+        s = context.scene.sigma
+        i = next((i for i, e in enumerate(s.extras) if e.asset_id == self.part), None)
+        if i is None:
+            return {'CANCELLED'}
+        root = s.extras[i].root
+        s.extras.remove(i)
+        if root is not None:
+            for o in reversed([root] + list(root.children_recursive)):
+                bpy.data.objects.remove(o)
+        write_blocks(s)
+        _poke()
+        self.report({'INFO'}, "Slot cleared")
+        return {'FINISHED'}
+
+
 class SIGMA_OT_remove_extra(bpy.types.Operator):
     """Take this part out of the script (its objects stay in Blender, as plain objects)"""
     bl_idname = "sigma.remove_extra"
@@ -393,6 +517,6 @@ class SIGMA_OT_delete_objects(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (SIGMA_OT_make_slot_part, SIGMA_OT_use_my_mesh, SIGMA_OT_replace_part_colliders, SIGMA_OT_remove_extra,
+classes = (SIGMA_OT_flip_swing, SIGMA_OT_clear_slot_part, SIGMA_OT_make_slot_part, SIGMA_OT_use_my_mesh, SIGMA_OT_replace_part_colliders, SIGMA_OT_remove_extra,
            SIGMA_OT_select_objects, SIGMA_OT_delete_objects)
 props = (SigmaExtra,)

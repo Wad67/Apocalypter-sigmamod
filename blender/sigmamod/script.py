@@ -46,8 +46,8 @@ template "{id}" (g)
 ''',
     'ATTACHABLE': '''local g = {{ model = {q_root}, name = {q_name} }}
 parts.attachable(g, {{
-  mass = 10,                       -- kg
-  colliders = {{ {colliders} }},   -- objects whose meshes are what it collides with
+  mass = 10,   -- kg
+  solid = {{ {colliders} }},   -- seen and solid
 }})
 
 template "{id}" (g)

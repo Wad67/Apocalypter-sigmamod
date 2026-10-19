@@ -4,7 +4,7 @@
 # game's textures) behind its buttons.
 import bpy
 
-from . import assets, checks, colliders, export, extras, jobs, kit, mascot, paths, preview, script, tuning, ui
+from . import assets, attach, checks, colliders, export, extras, jobs, kit, mascot, paths, preview, script, spawn, tuning, ui
 from .script import KINDS
 
 
@@ -28,6 +28,17 @@ class SigmaSettings(bpy.types.PropertyGroup):
                                                                      "it, in shops and in the spawner. Change it whenever you like")
     mod_folder: bpy.props.StringProperty(name="Folder", default="MyAssets",
                                          description="Your mod's folder in BepInEx/plugins; the asset goes into its sigma_assets folder")
+    out_subfolder: bpy.props.StringProperty(name="Subfolder",
+                                            description="A folder inside your mod's asset folder to keep this asset in "
+                                                        "(cars, cars/sigma...). The game loads subfolders too. Empty: none")
+    out_name: bpy.props.StringProperty(name="File name",
+                                       description="The asset's files' name (its .glb and its .lua share it). Empty: its "
+                                                   "id. The game knows it by its id either way")
+    out_dir: bpy.props.StringProperty(name="Custom folder", subtype='DIR_PATH',
+                                      description="Somewhere else to put it, instead of the mod folder above. The game "
+                                                  "only loads it from a mod folder's asset folders in BepInEx/plugins: "
+                                                  "the panel says if it won't, and can fix it")
+    last_path: bpy.props.StringProperty(description="Where the asset was last exported (its .glb)")
     kind: bpy.props.EnumProperty(name="Kind", items=KINDS, default='CAR',
                                  description="What kind of asset this is: it decides what the Build step asks of you and "
                                              "how the script starts")
@@ -40,14 +51,32 @@ class SigmaSettings(bpy.types.PropertyGroup):
     open_preview: bpy.props.BoolProperty(name="Preview", description="Show or hide the preview: the game's parts on "
                                          "your slots, its wheels on your hubs, doors opened")
     tuning: bpy.props.PointerProperty(type=tuning.SigmaTuning)
+    attach: bpy.props.PointerProperty(type=attach.SigmaAttachable)
+    spawning: bpy.props.PointerProperty(type=spawn.SigmaSpawning)
+    open_spawning: bpy.props.BoolProperty(name="Spawning", update=lambda self, context: spawn.load(context) if self.open_spawning else None,
+                                          description="Show or hide where it turns up in the world, and how often")
     preview_parts: bpy.props.BoolProperty(description="The game's parts are shown on the slots")
     preview_wheels: bpy.props.BoolProperty(description="The game's wheels are shown on the hubs")
     preview_seed: bpy.props.IntProperty(description="Which game parts the preview picked (0: the first of each kind)")
     preview_open: bpy.props.FloatProperty(name="Doors and lids open", subtype='FACTOR', min=0, max=1,
-                                          update=lambda self, context: preview.update(context),
+                                          update=lambda self, context: preview.pose(context),
                                           description="Swing every door, hood and lid open, as far as each part's own "
                                                       "game FSM opens it (shown on the preview's parts, and as wire "
                                                       "ghosts of your own parts)")
+    preview_wheel: bpy.props.EnumProperty(name="Wheel", items=preview.wheel_items,
+                                          update=lambda self, context: preview.wheel_changed(context),
+                                          description="Which of the game's wheels the preview puts on your hubs")
+    preview_lifted: bpy.props.BoolProperty(name="Show it lifted", update=lambda self, context: preview.lifted(context),
+                                           description="Show the car with a lift kit fitted: the lifted meshes, and the "
+                                                       "preview's wheels where the lifted springs hold them, further out")
+    preview_suspension: bpy.props.EnumProperty(
+        name="Suspension", default='REST', update=lambda self, context: preview.suspension_changed(context),
+        items=[('UP', "Bottomed out", "The suspension pushed all the way up: each wheel at its hub marker (the most "
+                                      "the wheel goes into the body: check it clears the arch)"),
+               ('REST', "Standing", "Standing still: where the car's weight holds each wheel on its springs"),
+               ('DOWN', "Extended", "Fully extended: each wheel hanging its whole spring travel below its hub (in the "
+                                    "air, over a crest)")],
+        description="Where the preview's wheels sit on their suspension")
     preview_ground: bpy.props.FloatProperty(description="Where the ground is under the previewed wheels (Z)")
     preview_has_ground: bpy.props.BoolProperty()
 
@@ -69,9 +98,9 @@ class SigmaPreferences(bpy.types.AddonPreferences):
         l.operator("sigma.install_tools", icon='IMPORT')
 
 
-classes = kit.props + extras.props + tuning.props + (SigmaSettings, SigmaPreferences) + jobs.classes + assets.classes + colliders.classes + checks.classes \
+classes = kit.props + extras.props + tuning.props + attach.props + spawn.props + (SigmaSettings, SigmaPreferences) + jobs.classes + assets.classes + colliders.classes + checks.classes \
     + script.classes + export.classes + kit.classes + extras.classes + mascot.classes + ui.classes + tuning.classes \
-    + preview.classes
+    + preview.classes + attach.classes + spawn.classes
 
 
 def register():

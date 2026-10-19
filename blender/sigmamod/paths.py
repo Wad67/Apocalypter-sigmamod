@@ -131,21 +131,67 @@ def data_file():
     return under_game("Apocalypter_Data", "data.unity3d")
 
 
+def loaded_dirs(mod_dir):
+    """The folders SigmaMod loads assets from in a mod folder (as its AssetSources does): those its sigma.json lists,
+    else its sigma_assets. Every .glb under them, subfolders included."""
+    import json
+    manifest = os.path.join(mod_dir, "sigma.json")
+    if os.path.isfile(manifest):
+        try:
+            m = json.load(open(manifest, encoding="utf-8"))
+            a = m.get("assets") if isinstance(m, dict) else None
+            names = [a] if isinstance(a, str) else [x for x in (a or []) if isinstance(x, str)]
+            return [os.path.normpath(os.path.join(mod_dir, n)) for n in names]
+        except (OSError, ValueError):
+            return []
+    return [os.path.join(mod_dir, "sigma_assets")]
+
+
 def asset_dir(s):
-    # an asset folder of the user's own: SigmaMod's own folder is replaced whenever SigmaMod is updated
+    """Where the asset goes: the custom folder if one is set, else the mod folder's asset folder (its sigma.json's
+    first, else sigma_assets) and the subfolder in it. An asset folder of the user's own: SigmaMod's own folder is
+    replaced whenever SigmaMod is updated."""
+    if s.out_dir.strip():
+        return os.path.normpath(bpy.path.abspath(s.out_dir.strip()))
     p = plugins()
-    folder = (s.mod_folder or "MyAssets").strip()
-    return os.path.join(p, folder, "sigma_assets") if p else ""
+    if not p:
+        return ""
+    mod = os.path.join(p, (s.mod_folder or "MyAssets").strip())
+    base = (loaded_dirs(mod) or [os.path.join(mod, "sigma_assets")])[0]
+    sub = s.out_subfolder.strip().strip("/\\")
+    return os.path.normpath(os.path.join(base, sub)) if sub else base
+
+
+def asset_name(s):
+    """The asset's file name, without its extension: the one set, else its id. Its .glb and .lua (and .json) share it."""
+    return re.sub(r'[\\/:*?"<>|]', "_", s.out_name.strip()) if s.out_name.strip() else s.asset_id
 
 
 def asset_glb(s):
     d = asset_dir(s)
-    return os.path.join(d, s.asset_id + ".glb") if d and s.asset_id else ""
+    return os.path.join(d, asset_name(s) + ".glb") if d and s.asset_id else ""
 
 
 def asset_lua(s):
     d = asset_dir(s)
-    return os.path.join(d, s.asset_id + ".lua") if d and s.asset_id else ""
+    return os.path.join(d, asset_name(s) + ".lua") if d and s.asset_id else ""
+
+
+def loads(s):
+    """(whether the game will load the asset where it goes, why not, the mod folder whose sigma.json would fix it)."""
+    d = asset_dir(s)
+    p = plugins()
+    if not d or not p:
+        return True, "", None
+    d, p = os.path.normcase(os.path.normpath(d)), os.path.normcase(os.path.normpath(p))
+    if not d.startswith(p + os.sep):
+        return False, "outside BepInEx/plugins: the game only loads assets from mod folders there", None
+    mod = os.path.join(p, os.path.relpath(d, p).split(os.sep)[0])
+    for x in loaded_dirs(mod):
+        x = os.path.normcase(os.path.normpath(x))
+        if d == x or d.startswith(x + os.sep):
+            return True, "", None
+    return False, f"not one of the folders SigmaMod loads in {os.path.basename(mod)}", mod
 
 
 def tools_dir():

@@ -29,7 +29,7 @@ DRIVES = [
     ('script', "As the script has it", "The script names an axle by number: left as it is"),
 ]
 # what each group of settings is in the script; a group is written once the artist changes any of it
-GROUPS = ("mass", "drive", "steer", "brakes", "gears", "diff", "centre", "front", "rear")
+GROUPS = ("mass", "drive", "steer", "brakes", "gears", "diff", "centre", "front", "rear", "lift")
 VC = {"steer": "steering.maximumSteerAngle", "brakes": "brakes.maxTorque", "gears": "powertrain.transmission.gears"}
 DIFF = {"diff": "DifferentialType", "diff_stiffness": "stiffness", "bias": "biasAB", "slip_torque": "slipTorque",
         "power_ramp": "powerRamp", "coast_ramp": "coastRamp"}
@@ -117,6 +117,15 @@ class SigmaTuning(bpy.types.PropertyGroup):
                                    description="All-wheel drive: how the engine's turn is split between the axles")
     centre_bias: bpy.props.FloatProperty(name="Front / rear split", min=0, max=1, update=_touch("centre"),
                                          description="All-wheel drive: the front axle's share of the torque (0.5: even)")
+    lift_spring: bpy.props.FloatProperty(name="Lifted travel", unit='LENGTH', min=0.01, max=1.5, precision=3, update=_touch("lift"),
+                                         description="With a lift kit fitted: how far each wheel can drop below its hub. "
+                                                     "More than stock: the car sits higher (the game's: 0.2 to 0.31)")
+    lift_damper: bpy.props.FloatProperty(name="Lifted damping", min=0, max=100000, step=10000, precision=0, update=_touch("lift"),
+                                         description="With a lift kit fitted: the shock absorbers (the game's: halved, "
+                                                     "3000 to 1500: it floats over rough ground)")
+    lift_widen: bpy.props.FloatProperty(name="Wheels out by", unit='LENGTH', min=0, max=1, precision=3, update=_touch("lift"),
+                                        description="With a lift kit fitted: how far each wheel moves outward (a wider "
+                                                    "track, steadier when tall; the game's: 0.22 m)")
 
 
 # ---- what the script says
@@ -137,6 +146,33 @@ def wheels_in(src):
         out.append((name, (at.group(1) if at.group(1) is not None else at.group(2)) if at else None,
                     [float(x) for x in re.findall(NUM, rot.group(1))] if rot else None, opts))
     return out
+
+
+def lift_slot(src):
+    """The lift kit slot's name in the script (its parts.lift_kit line), or None."""
+    m = re.search(r"parts\.lift_kit\(\s*g\s*(?:,\s*\{(.*?)\}\s*)?\)", src or "", re.S)
+    if not m:
+        return None
+    s = re.search(r'\bslot\s*=\s*"((?:[^"\\]|\\.)*)"', m.group(1) or "")
+    return s.group(1) if s else "hinge_suspension"
+
+
+def lift_lists(src):
+    """(lifted, stock): the object names the lift kit line shows with a kit fitted, and hides."""
+    m = re.search(r"parts\.lift_kit\(\s*g\s*,\s*\{(.*?)\}\s*\)\s*$", src or "", re.S | re.M)
+    body = m.group(1) if m else ""
+    out = []
+    for key in ("lifted", "stock"):
+        mm = re.search(r"\b" + key + r"\s*=\s*\{([^}]*)\}", body)
+        out.append(re.findall(r'"((?:[^"\\]|\\.)*)"', mm.group(1)) if mm else [])
+    return out
+
+
+def lift_opts(src):
+    """The lift kit's own spring, damper, widen in its parts.lift_kit line (what it has without Tuning)."""
+    m = re.search(r"parts\.lift_kit\(\s*g\s*,\s*\{(.*?)\}\s*\)\s*$", src or "", re.S | re.M)
+    body = m.group(1) if m else ""
+    return {k: float(v) for k, v in re.findall(r"\b(spring|damper|widen)\s*=\s*(" + NUM + ")", body)}
 
 
 def hub_of(name, at):
@@ -161,7 +197,7 @@ def axles(context, src):
 
 
 # the lines the add-on writes in the block: anything else (a line of the artist's, a template) ends it
-OWN = re.compile(r'(-- (?!#)|g\.Rigidbody\b|g\.drive\b|g\.VehicleController\b|local tune = |tune\[|for _, wheel in |  |end$)')
+OWN = re.compile(r'(-- (?!#)|g\.Rigidbody\b|g\.drive\b|g\.VehicleController\b|local tune = |tune\[|for _, wheel in |  |end$|local lift = |if lift then )')
 
 
 def span(lines):
@@ -242,6 +278,10 @@ def read(src):
             if k2 in vc:
                 out[name] = _val(vc[k2])
                 in_block |= {"centre"} if mine else set()
+    mm = re.search(r"lift\.spring, lift\.damper, lift\.widen = (" + NUM + "), (" + NUM + "), (" + NUM + ")", block)
+    if mm:
+        out["lift"] = tuple(float(x) for x in mm.groups())
+        in_block.add("lift")
     for what, key in (("front axle", "front"), ("rear axle", "rear")):
         mm = re.search(r"--\s*" + what + r"\n.*?spring\.maxForce\"\] = (" + NUM + "), (" + NUM + r")\n.*?reboundRate\"\] = (" + NUM + "), (" + NUM + ")",
                        block, re.S)
@@ -296,6 +336,12 @@ def block(context, src, groups):
                f'tune["powertrain.differentials.2.biasAB"] = {_f(t.centre_bias)}   -- the front axle\'s share']
     if vc:
         lines += ["g.VehicleController = g.VehicleController or {}", "local tune = g.VehicleController"] + vc
+    slot = lift_slot(src)
+    if "lift" in groups and slot:
+        q = script._q(slot)
+        lines += [f'local lift = g.nodes[{q}] and g.nodes[{q}]["SigmaMod.Parts.LiftKit"]',
+                  f"if lift then lift.spring, lift.damper, lift.widen = {_f(t.lift_spring)}, {_f(t.lift_damper)}, "
+                  f"{_f(t.lift_widen)} end   -- with a lift kit fitted"]
     front, rear = axles(context, src)
     for names, a, what, key in ((front, t.front, "front axle", "front"), (rear, t.rear, "rear axle", "rear")):
         if not names or key not in groups:
@@ -393,6 +439,9 @@ def load(context, src=None, force=False):
         setattr(t, name, val if val in {x[0] for x in DIFF_TYPES} else "Open")
     for name in ("diff_stiffness", "bias", "slip_torque", "power_ramp", "coast_ramp", "centre_bias"):
         setattr(t, name, v.get(name, NWH[name]))
+    lo = lift_opts(src)   # lifted: the block's, else the lift kit line's, else the game's ratios on the front's stock
+    t.lift_spring, t.lift_damper, t.lift_widen = v.get("lift") or (lo.get("spring") or t.front.spring * 1.55,
+                                                                    lo.get("damper") or t.front.damper * 0.5, lo.get("widen", 0.22))
     t.touched, t.loaded, t.dirty, t.source = "", True, False, paths.asset_lua(s) or ""
 
 
@@ -416,12 +465,28 @@ def rest_drop(context, src=None):
     yr = sum(hubs[w].matrix_world.translation.y for w in rear) / len(rear) if rear else yf
     share_f = 1.0 if not rear or abs(yr - yf) < 1e-6 else min(1.0, max(0.0, (yr - yc) / (yr - yf)))
     weight = t.mass * 9.81
+    lifted = s.preview_lifted and lift_slot(src)
     out = {}
     for names, share, a in ((front, share_f, t.front), (rear, 1 - share_f, t.rear)):
         for w in names:
             load_ = weight * share / len(names)
             pushed = min(1.0, load_ / max(a.stiffness, 1.0))   # the share of the travel the weight pushes up
-            out[w] = a.spring * (1 - pushed)
+            out[w] = (t.lift_spring if lifted else a.spring) * (1 - pushed)
+    return out
+
+
+def travel(context, src=None):
+    """{wheel name: its spring's whole travel}: how far below its hub it hangs fully extended (lifted, with Show it
+    lifted on and a lift kit slot)."""
+    s = context.scene.sigma
+    t = s.tuning
+    src = src if src is not None else (script.read_script(s) or "")
+    front, rear = axles(context, src)
+    lifted = s.preview_lifted and lift_slot(src)
+    out = {}
+    for names, a in ((front, t.front), (rear, t.rear)):
+        for w in names:
+            out[w] = t.lift_spring if lifted else a.spring
     return out
 
 
@@ -500,6 +565,8 @@ def draw(l, c, wrap):
         col.label(text=f"The script drives axle {t.drive_script}: pick one above to change it", icon='INFO')
     col.prop(t, "steer")
     col.prop(t, "brakes")
+    row = l.row(align=True)
+    row.prop(s, "preview_suspension", expand=True)
     for name, label in (("front", "Front axle"), ("rear", "Rear axle")):
         a = getattr(t, name)
         b = l.box().column(align=True)
@@ -507,6 +574,21 @@ def draw(l, c, wrap):
         b.prop(a, "spring")
         b.prop(a, "stiffness")
         b.prop(a, "damper")
+    b = l.box().column(align=True)
+    b.label(text="Lift kit", icon='TRIA_UP_BAR')
+    if lift_slot(script.read_script(s) or ""):
+        b.prop(t, "lift_spring")
+        b.prop(t, "lift_damper")
+        b.prop(t, "lift_widen")
+        b.prop(s, "preview_lifted", toggle=True, icon='HIDE_OFF')
+    elif re.search(r'parts\.slot\(\s*g\s*,\s*"(?:[^"\\]|\\.)*"\s*,\s*"suspension"', script.read_script(s) or ""):
+        wrap(b, c, "Your script has the lift kit slot as an older kit wrote it: a lift kit clips in, but doesn't lift the "
+                   "car. Update the script writes the section again as the kit has it now (your picks stay); export "
+                   "does it too.", icon='ERROR', boxes=4)
+        b.operator("sigma.update_kit_script", icon='FILE_REFRESH')
+    else:
+        wrap(b, c, "No lift kit slot: Wheels and suspension's Lift kit slot adds one (the game's lift kits clip in "
+                   "there and lift the car).", icon='INFO', boxes=4)
     b = l.box().column(align=True)
     b.label(text="Gearbox", icon='SETTINGS')
     if not t.gears_known and "gears" not in t.touched:
