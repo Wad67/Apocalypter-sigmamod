@@ -41,6 +41,29 @@ class SigmaExtra(bpy.types.PropertyGroup):
     open_rot: bpy.props.FloatVectorProperty(size=3, description="How it opens: the rotation (Unity degrees) its "
                                                                  "DoorOpen turns its slot to")
     open_set: bpy.props.BoolProperty(description="Flipped by the artist: opens as open_rot says, not the way out")
+    spawns: bpy.props.BoolProperty(name="Spawns", default=True, update=lambda self, context: _rewrite(context),
+                                   description="Turns up in the world where the game part it's made from does (merchants, "
+                                               "loot, wrecks). Off: only fitted to your car, or from a spawner tool")
+    weight: bpy.props.FloatProperty(name="How likely", default=1, min=0.01, max=100, update=lambda self, context: _rewrite(context),
+                                    description="Next to each other thing where it spawns: 1 as likely as the game part "
+                                                "it's made from, 0.25 a quarter, 2 twice")
+    mass: bpy.props.FloatProperty(name="Mass", default=0, min=0, max=10000, update=lambda self, context: _rewrite(context),
+                                  description="What it weighs loose, in kg (fitted, it adds to the car). 0: the game "
+                                              "part's own (shown beside it)")
+
+
+def _rewrite(context):
+    write_blocks(context.scene.sigma)
+
+
+def donor_mass(e):
+    """The game part's own mass (kg), from its export, or None."""
+    path = os.path.join(paths.export_dir(), e.donor + ".glb") if e.donor else ""
+    for _, ex in gamedata.root_extras(path) if path and os.path.isfile(path) else []:
+        m = (ex.get("rigidbody") or {}).get("mass")
+        if isinstance(m, (int, float)):
+            return float(m)
+    return None
 
 
 def _closed(context, e):
@@ -124,6 +147,12 @@ def block(e):
     if act and rot and [round(x, 3) for x in rot] != [round(x, 3) for x in act[1]]:   # opens its own way, not the game part's
         v = ", ".join(f"{x + 0.0:g}" for x in rot)   # (no "-0")
         extra = f', fsm = {{ DoorOpen = {{ ["{act[0]}/iTweenRotateTo.vectorRotation"] = {{ {v} }} }} }}'
+    if not e.spawns:
+        extra += ", spawn = false"
+    elif abs(e.weight - 1) > 1e-6:
+        extra += f", spawn = {e.weight:g}"
+    if e.mass > 0:
+        extra += f", Rigidbody = {{ mass = {e.mass:g} }}"
     return "\n".join([BLOCK + e.asset_id, NOTE,
                       f'template {_q(e.asset_id)} {{ model = {_q(e.root.name)}, name = {_q(e.display_name or e.asset_id)}{extra} }}', ""])
 

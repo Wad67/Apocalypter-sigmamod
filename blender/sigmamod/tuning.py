@@ -356,6 +356,27 @@ def block(context, src, groups):
     return "\n".join([HEADER, NOTE] + lines) if lines else ""
 
 
+def _into_chassis(src, t, groups):
+    """mass and drive written into the parts.chassis line itself, where it sets them (so the script reads as it runs):
+    (the script, the groups done there)."""
+    m = re.search(r"parts\.chassis\s*\{", src)
+    if not m:
+        return src, set()
+    depth, i = 1, m.end()
+    while i < len(src) and depth:
+        depth += {"{": 1, "}": -1}.get(src[i], 0)
+        i += 1
+    body = src[m.end():i - 1]
+    done = set()
+    for key, val in (("mass", _f(t.mass)), ("drive", f'"{t.drive}"')):
+        if key not in groups or (key == "drive" and t.drive == 'script'):
+            continue
+        new, n = re.subn(r'(\b' + key + r'\s*=\s*)(?:' + NUM + r'|"\w+")', lambda mm: mm.group(1) + val, body, count=1)
+        if n:
+            body, done = new, done | {key}
+    return src[:m.end()] + body + src[i - 1:], done
+
+
 def write(context):
     """The block, written again just before the car's template line (so it comes after every wheel made), with what
     the artist changed. Nothing changed and no block: the script is left alone."""
@@ -370,12 +391,19 @@ def write(context):
         src = open(path, encoding="utf-8").read()
     except OSError:
         return False
+    original = src
     load(context, src)
     _, in_block = read(src)
     groups = written(s.tuning, in_block)
+    src, done = _into_chassis(src, s.tuning, groups)   # mass and drive where the script sets them: its chassis line
+    groups -= done
     lines = src.split("\n")
     sp = span(lines)
     if not groups and not sp:
+        if done:
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(src)
+            script.reload_text(path)
         s.tuning.dirty = False
         return True
     if sp:
@@ -385,7 +413,7 @@ def write(context):
         lines = lines[:a] + lines[b:]
     code = block(context, src, groups)
     new = script.insert("\n".join(lines), code, s.asset_id, end=True) if code else "\n".join(lines)
-    if new != src:
+    if new != original:
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write(new)
         script.reload_text(path)

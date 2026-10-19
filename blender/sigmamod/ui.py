@@ -357,6 +357,13 @@ def draw_parts(l, c):
         b.prop(e, "root", text="Object")
         b.prop(e, "asset_id", text="Id")
         b.prop(e, "display_name", text="Name in game")
+        row = b.row(align=True)
+        row.prop(e, "spawns", toggle=True, icon='WORLD')
+        sub = row.row(align=True)
+        sub.enabled = e.spawns
+        sub.prop(e, "weight")
+        own = extras.donor_mass(e)
+        b.prop(e, "mass", text="Mass (kg)" + (f", 0: the game part's {own:g}" if own is not None else ""))
         if e.root is not None and not e.root.get(extras.PART_SWAPPED):
             wrap(b, c, "Now your mesh: select it, then the game part's mesh (last, so it's the active one), and:", boxes=3)
             b.operator("sigma.use_my_mesh", icon='MOD_DATA_TRANSFER')
