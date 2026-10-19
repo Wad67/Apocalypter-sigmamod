@@ -151,6 +151,13 @@ def norm(name):
     return re.sub(r"[^a-z0-9]", "", n)
 
 
+def stem(names):
+    """What the names of a role's objects begin with, normalised: hinge_door_L and hinge_door_R give "hingedoor"."""
+    ns = [norm(n) for n in names]
+    out = os.path.commonprefix(ns) if ns else ""
+    return out if len(ns) > 1 else re.sub(r"(front|rear|left|right|driver|[lr])$", "", out) or out
+
+
 def fits(obj, role, k):
     """Whether an object could be this role, by the role's type: a spot is an empty, a marker an empty or a mesh,
     everything else a mesh."""
@@ -168,6 +175,30 @@ def fitting_children(obj, role, k):
     return kids if kids else []
 
 
+def migrate(s, k):
+    """Picks saved under a role the kit no longer has: an artist's pick moves to the role that took the name over (the
+    passenger seat's slot is one of the seat slots now); a guess goes, to be found again."""
+    owner = {}
+    for sec in k["sections"]:
+        for role in sec.roles:
+            if role.multi:
+                for n in sigmasrc.sigma_list(sec.code, role.name):
+                    owner.setdefault(n, (sec, role))
+    for i in range(len(s.roles) - 1, -1, -1):
+        r = s.roles[i]
+        if r.role in k["roles"]:
+            continue
+        if r.auto or r.role not in owner or r.obj is None:
+            s.roles.remove(i)
+            continue
+        sec, role = owner[r.role]
+        if any(x.role == role.name and x.obj == r.obj for x in s.roles):
+            s.roles.remove(i)
+            continue
+        r.role, r.section = role.name, sec.title
+        claim(s, role.name)
+
+
 def detect(context):
     """Pick for every role nobody has picked for, from the asset's objects: the object brought from the Sigma for that
     role, else one named exactly as it, else one named as it with capitals, spaces and .001 aside. A role of any number
@@ -178,10 +209,11 @@ def detect(context):
     if not k or s.root is None:
         return
     objs = checks.asset_objects(s)
+    migrate(s, k)
     mine = {r.role for r in s.roles if not r.auto}   # touched by the artist: theirs, as they left it
     _remove_where(s, lambda r: r.auto and r.role in mine)   # (a file from before this kept guesses beside picks)
     used = {r.obj for r in s.roles if not r.auto and r.obj is not None}
-    want = {}
+    want, pools = {}, {}
     for sec in k["sections"]:
         scope = next((st.scope for st in s.sections if st.title == sec.title), None)
         pool = [o for o in (([scope] + list(scope.children_recursive)) if scope else objs) if o != s.root]
@@ -194,12 +226,21 @@ def detect(context):
             found = [o for o in free if o.get(TAG_NAME) == role.name] or \
                     [o for o in free if o.name in names and fits(o, role, k)] or \
                     [o for o in free if norm(o.name) in known and fits(o, role, k)]
-            if role.multi and scope and not found:
-                found = [o for o in scope.children if o not in used and fits(o, role, k)]
             if not role.multi:
                 found = found[:1]
             used.update(found)
             want[role.name] = (sec.title, found)
+            pools[role.name] = (role, scope, pool, stem(names))
+    # then the rest of a role of any number: more of the same by name (a third door, hinge_door_FL), or in its group
+    for name, (role, scope, pool, st) in pools.items():
+        if not role.multi:
+            continue
+        found = want[name][1]
+        more = [o for o in pool if o not in used and len(st) >= 5 and norm(o.name).startswith(st) and fits(o, role, k)]
+        if scope and not found and not more:
+            more = [o for o in scope.children if o not in used and fits(o, role, k)]
+        used.update(more)
+        found += sorted(more, key=lambda o: o.name)
     for sec in k["sections"]:
         if not any(st.title == sec.title for st in s.sections):
             state(s, sec.title)
@@ -288,7 +329,7 @@ def write_sections(s, k, secs, remove=()):
             lines[sp[0]:sp[1]] = block
         elif block:
             later = [x for x in order[order.index(sec) + 1:] if _span(lines, x)]
-            at = _span(lines, later[0])[0] if later else script.car_template_at(lines, s.asset_id)
+            at = _span(lines, later[0])[0] if later else script.code_end(lines, s.asset_id)
             lines[at:at] = block
         src = "\n".join(lines)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
@@ -308,6 +349,8 @@ def sync(context):
     stale = [sec for sec in k["sections"] if block_of(src, sec) is not None and block_of(src, sec).strip() != section_block(sec, p).strip()]
     if stale:
         write_sections(s, k, stale)
+    from . import tuning
+    tuning.write(context)   # last: it has to come after every wheel
 
 
 def _wrap(text, width=110):
@@ -548,7 +591,7 @@ class SIGMA_OT_bring_role(bpy.types.Operator):
 
 
 class SIGMA_OT_role_slot(bpy.types.Operator):
-    """Another one (or, with remove, this one less)"""
+    """Another one: an empty row to pick an object you already have into (or, with remove, this one less)"""
     bl_idname = "sigma.role_slot"
     bl_label = "Another"
     bl_options = {'REGISTER', 'UNDO'}
@@ -557,6 +600,14 @@ class SIGMA_OT_role_slot(bpy.types.Operator):
     section: bpy.props.StringProperty()
     remove: bpy.props.IntProperty(default=-1)
     leave_out: bpy.props.BoolProperty(description="Leave it out on purpose")
+
+    @classmethod
+    def description(cls, context, props):
+        if props.leave_out:
+            return "Leave it out on purpose: your car hasn't got one. Its lines go from the script"
+        if props.remove >= 0:
+            return "Not this one: take it off the list (the object stays in Blender)"
+        return cls.__doc__
 
     def execute(self, context):
         s = context.scene.sigma
@@ -679,6 +730,34 @@ class SIGMA_OT_remove_kit(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def explain(k, role):
+    """Everything about a role, in words: what it is, where it goes, how many, what kind of object."""
+    need = ("any number, or none" if role.multi else "you can leave it out") if role.optional else \
+        ("at least one: the car doesn't work without it" if role.multi else "needed: the car doesn't work without it")
+    kind = k["kinds"].get(role.kind, "")
+    return " ".join(x for x in [role.label + ".", (role.help + ".") if role.help else "", f"({need.capitalize()}.)",
+                                f"{role.kind.capitalize()}: {kind}" if kind else ""] if x)
+
+
+class SIGMA_OT_open_role(bpy.types.Operator):
+    """Show or hide the details"""
+    bl_idname = "sigma.open_role"
+    bl_label = "Details"
+
+    role: bpy.props.StringProperty()
+
+    @classmethod
+    def description(cls, context, props):
+        k = sigmasrc.kit()
+        role = role_of(k, props.role) if k else None
+        return (explain(k, role) + "\n\nClick for the details and buttons in full") if role else cls.__doc__
+
+    def execute(self, context):
+        s = context.scene.sigma
+        s.open_role = "" if s.open_role == self.role else self.role
+        return {'FINISHED'}
+
+
 class SIGMA_OT_open_kit(bpy.types.Operator):
     """Show or hide what this is made of"""
     bl_idname = "sigma.open_kit"
@@ -686,12 +765,21 @@ class SIGMA_OT_open_kit(bpy.types.Operator):
 
     section: bpy.props.StringProperty()
 
+    @classmethod
+    def description(cls, context, props):
+        k = sigmasrc.kit()
+        sec = next((x for x in k["sections"] if x.title == props.section), None) if k else None
+        if sec is None:
+            return cls.__doc__
+        return (f"{sec.title}: {sec.desc}\n\nMade of: " + ", ".join(r.label for r in sec.roles) +
+                ".\n\nClick to open it: what was found for each, and the buttons to pick, make or leave out the rest")
+
     def execute(self, context):
         s = context.scene.sigma
         s.open_kit = "" if s.open_kit == self.section else self.section
         return {'FINISHED'}
 
 
-classes = (SIGMA_OT_add_kit, SIGMA_OT_bring_role, SIGMA_OT_make_role_object, SIGMA_OT_role_slot, SIGMA_OT_select_kit, SIGMA_OT_update_kit_script,
+classes = (SIGMA_OT_add_kit, SIGMA_OT_open_role, SIGMA_OT_bring_role, SIGMA_OT_make_role_object, SIGMA_OT_role_slot, SIGMA_OT_select_kit, SIGMA_OT_update_kit_script,
            SIGMA_OT_remove_kit, SIGMA_OT_open_kit)
 props = (SigmaRole, SigmaSectionState)

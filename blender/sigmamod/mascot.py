@@ -115,6 +115,8 @@ def _tick():
                 if ctx.scene.sigma.kind == 'CAR' and ctx.scene.sigma.root is not None:
                     from . import kit
                     kit.detect(ctx)
+                    from . import preview
+                    preview.update(ctx)   # slots and hubs may have moved
                 export.recheck(ctx)
                 _redraw()
     except Exception as e:   # a failing check mustn't kill the timer
@@ -127,8 +129,20 @@ def _changed(scene, depsgraph):
     _state["dirty"] = True
 
 
+class SIGMA_OT_about_clunky(bpy.types.Operator):
+    """Clunky. He watches what you do every few seconds and says what's wrong with it, one thing at a time, worst first,
+with the button that fixes it under what he says. Next: what else is wrong. Shut up, Clunky: not this one again
+(until Blender restarts). Click him to make him look again right now"""
+    bl_idname = "sigma.about_clunky"
+    bl_label = "Clunky"
+
+    def execute(self, context):
+        bpy.ops.sigma.hint_refresh()
+        return {'FINISHED'}
+
+
 class SIGMA_OT_hint_next(bpy.types.Operator):
-    """What else is wrong"""
+    """Clunky's next complaint: he has more than one, and shows them one at a time, worst first"""
     bl_idname = "sigma.hint_next"
     bl_label = "Next"
 
@@ -152,7 +166,7 @@ class SIGMA_OT_hint_dismiss(bpy.types.Operator):
 
 
 class SIGMA_OT_hint_undismiss(bpy.types.Operator):
-    """Let Clunky say everything again"""
+    """Let Clunky say everything again, including what you told him to shut up about"""
     bl_idname = "sigma.hint_undismiss"
     bl_label = "I missed you, Clunky"
 
@@ -164,6 +178,7 @@ class SIGMA_OT_hint_undismiss(bpy.types.Operator):
 
 
 class SIGMA_OT_recheck_now(bpy.types.Operator):
+    """Make Clunky look at everything again now"""
     bl_idname = "sigma.hint_refresh"
     bl_label = "Look again"
     bl_description = "Make Clunky look at everything again now"
@@ -174,7 +189,7 @@ class SIGMA_OT_recheck_now(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (SIGMA_OT_hint_next, SIGMA_OT_hint_dismiss, SIGMA_OT_hint_undismiss, SIGMA_OT_recheck_now)
+classes = (SIGMA_OT_about_clunky, SIGMA_OT_hint_next, SIGMA_OT_hint_dismiss, SIGMA_OT_hint_undismiss, SIGMA_OT_recheck_now)
 
 
 def register():

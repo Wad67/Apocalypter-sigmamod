@@ -7,7 +7,7 @@ import sys
 import blf
 import bpy
 
-from . import assets, checks, export, extras, gamedata, jobs, kit, mascot, paths, script, sigmasrc
+from . import assets, checks, export, extras, gamedata, jobs, kit, mascot, paths, preview, script, sigmasrc, tuning
 
 
 def _scale(context):
@@ -18,7 +18,7 @@ def _lines(context, text, width):
     sf = _scale(context)
     try:
         blf.size(0, context.preferences.ui_styles[0].widget.points * sf)
-        measure = lambda t: blf.dimensions(0, t)[0] * 1.18   # Blender draws labels wider than blf measures them
+        measure = lambda t: blf.dimensions(0, t)[0] * 1.25   # Blender draws labels wider than blf measures them
     except Exception:   # no font to measure with (background): about 6.5 px a character
         measure = lambda t: len(t) * 6.5 * sf
     out = []
@@ -39,7 +39,8 @@ def wrap(layout, context, text, icon='NONE', boxes=1, frac=1.0):
     """Text wrapped to the panel. boxes: how many boxes it sits in; frac: the share of the panel's width its column
     has (a split)."""
     sf = _scale(context)
-    width = context.region.width * frac - (30 + 14 * boxes) * sf - (24 * sf if icon != 'NONE' else 0) - 16 * sf
+    # each box takes its padding off both sides; the region's scroll bar and the panel's own margins come off too
+    width = context.region.width * frac - (40 + 20 * boxes) * sf - (24 * sf if icon != 'NONE' else 0)
     col = layout.column(align=True)
     col.scale_y = 0.8
     for i, line in enumerate(_lines(context, text, max(width, 80 * sf))):
@@ -150,65 +151,95 @@ KIND_ICON = {"spot": 'EMPTY_ARROWS', "marker": 'EMPTY_SINGLE_ARROW', "mesh": 'ME
              "collider": 'MOD_WIREFRAME', "volume": 'MESH_CUBE', "solid": 'MOD_PHYSICS', "hull": 'MOD_PHYSICS'}
 
 
+def part_mesh(c):
+    """The selected mesh, if it could be made into a part: one of the artist's meshes, not picked for anything else."""
+    s = c.scene.sigma
+    o = c.active_object
+    if o is None or o.type != 'MESH' or not o.select_get() or o.get("sigma") == "collider" or o == s.root:
+        return None
+    if any(r.obj == o for r in s.roles) or o in extras.objects(s):
+        return None
+    return o
+
+
+def draw_slot_part(row, c, role, it, accepts):
+    """On a slot's row: its part, or the buttons that make one."""
+    s = c.scene.sigma
+    e = extras.for_slot(s, it.obj, None if role.multi else role.name)
+    if e is not None and e.root is not None:
+        op = row.operator("sigma.select_objects", text="", icon='CHECKMARK')
+        op.names = e.root.name
+        return
+    if not gamedata.part_ids().get(accepts):
+        return
+    mine = part_mesh(c)
+    sub = row.row(align=True)
+    sub.enabled = mine is not None
+    op = sub.operator("sigma.make_slot_part", text="", icon='MESH_DATA')
+    op.slot, op.role, op.accepts, op.mesh = it.obj.name, role.name, accepts, mine.name if mine else ""
+    op = row.operator("sigma.make_slot_part", text="", icon='IMPORT')
+    op.slot, op.role, op.accepts = it.obj.name, role.name, accepts
+
+
 def draw_role(b, c, sec, role, p, k):
+    """One role, compact: its name (hover: what it is, in full; click: the details), what's picked, small buttons with
+    tooltips. Open, the same in words."""
     s = c.scene.sigma
     its = kit.items(s, role.name)
     got = p.get(role.name)
     left_out = any(r.none for r in its)
+    opened = s.open_role == role.name
     icon = 'CHECKMARK' if got else ('X' if left_out else ('RADIOBUT_OFF' if role.optional else 'ERROR'))
-    need = ("any number" if role.multi else "") if role.optional else ("required: the part doesn't work without it" if not role.multi
-                                                                       else "at least one, required")
-    head = b.row(align=True)
-    head.label(text=role.label, icon=icon)
-    if got:
-        op = head.operator("sigma.select_kit", text="", icon='RESTRICT_SELECT_OFF')
-        op.role, op.section = role.name, sec.title
-    kind = k["kinds"].get(role.kind, "")
-    what = f"{role.kind.capitalize()}: {kind}" if kind else ""
-    wrap(b, c, (role.help + ". " if role.help else "") + (f"({need}) " if need else "") + what, icon=KIND_ICON.get(role.kind, 'DOT'), boxes=3)
-    if not its:
-        b.label(text="Looking for yours...", icon='VIEWZOOM')
-    for i, it in enumerate(its):
-        if it.none:
-            continue
-        row = b.row(align=True)
+    accepts = sigmasrc.accepts_of(sec.code, role.name) if role.kind == 'spot' else None
+    shown = [(i, it) for i, it in enumerate(its) if not it.none]
+    split = b.split(factor=0.45, align=True)
+    name = role.label + (f" ({len(got)})" if role.multi and got else "")
+    split.operator("sigma.open_role", text=name, icon=icon, emboss=False).role = role.name
+    right = split.row(align=True)
+    if role.multi or not shown:   # buttons on the name's line; each entry gets a line of its own
+        if not got:
+            right.operator("sigma.bring_role", text="", icon='IMPORT').role = role.name
+        if role.kind in ('spot', 'marker', 'collider'):
+            right.operator("sigma.make_role_object", text="", icon='ADD').role = role.name
+        if role.multi:
+            op = right.operator("sigma.role_slot", text="", icon='EYEDROPPER')
+            op.role, op.section = role.name, sec.title
+        if not got and role.optional and not left_out:
+            op = right.operator("sigma.role_slot", text="", icon='X')
+            op.role, op.section, op.leave_out = role.name, sec.title, True
+        if left_out:
+            op = right.operator("sigma.role_slot", text="Have one", icon='LOOP_BACK')
+            op.role, op.section = role.name, sec.title
+        if got:
+            op = right.operator("sigma.select_kit", text="", icon='RESTRICT_SELECT_OFF')
+            op.role, op.section = role.name, sec.title
+    for n, (i, it) in enumerate(shown):
+        row = (right if not role.multi else b.row(align=True)).row(align=True)
+        if role.multi:
+            row.separator(factor=2)
         row.prop(it, "obj", text="")
         if role.multi and len(its) > 1:
             op = row.operator("sigma.role_slot", text="", icon='X')
             op.role, op.section, op.remove = role.name, sec.title, i
+        if it.obj is not None and accepts:
+            draw_slot_part(row, c, role, it, accepts)
         if it.obj is not None and role.kind == 'solid' and it.obj.type == 'MESH':
             made, stale = kit.made_colliders(it.obj)
-            crow = b.row(align=True)
             if made and not stale:
-                crow.label(text=f"Colliders: {made} pieces, up to date", icon='CHECKMARK')
+                row.label(text="", icon='MOD_PHYSICS')
             else:
-                crow.label(text="Colliders: " + ("out of date" if made else "none yet"), icon='ERROR')
-                crow.operator("sigma.make_colliders", text="Make them again" if made else "Make its colliders",
-                              icon='MOD_MESHDEFORM').target = it.obj.name
-    accepts = sigmasrc.accepts_of(sec.code, role.name) if role.kind == 'spot' else None
-    if got and accepts and not role.multi:
-        e = extras.for_slot(s, role.name)
-        prow = b.row(align=True)
-        if e is not None and e.root is not None:
-            prow.label(text=f"Its {accepts}: {e.root.name}", icon='CHECKMARK')
-            prow.operator("sigma.select_objects", text="", icon='RESTRICT_SELECT_OFF').names = e.root.name
-        elif gamedata.part_ids().get(accepts):
-            op = prow.operator("sigma.make_slot_part", text=f"Make a {accepts} for it", icon='ADD')
-            op.slot, op.accepts = role.name, accepts
-    row = b.row(align=True)
-    if not got:
-        row.operator("sigma.bring_role", text="The Sigma's", icon='IMPORT').role = role.name
-        if role.kind in ('spot', 'marker', 'collider'):
-            row.operator("sigma.make_role_object", text="Make one here", icon='ADD').role = role.name
-        if role.optional and not left_out:
-            op = row.operator("sigma.role_slot", text="Leave out", icon='X')
-            op.role, op.section, op.leave_out = role.name, sec.title, True
-    if role.multi:
-        op = row.operator("sigma.role_slot", text="Another", icon='ADD')
-        op.role, op.section = role.name, sec.title
-    if left_out:
-        op = row.operator("sigma.role_slot", text="I have one after all", icon='LOOP_BACK')
-        op.role, op.section = role.name, sec.title
+                row.operator("sigma.make_colliders", text="", icon='ERROR').target = it.obj.name
+    if opened:
+        col = b.box().column()
+        wrap(col, c, kit.explain(k, role), icon=KIND_ICON.get(role.kind, 'DOT'), boxes=4)
+        if role.kind == 'solid':
+            wrap(col, c, "The warning sign by it: its colliders are missing or out of date. Press it to make them.", boxes=4)
+        if accepts:
+            wrap(col, c, f"On each slot: the mesh button makes the selected mesh this slot's {accepts}; the import button "
+                         f"fits one of the game's {accepts}s as it is. A tick: it has its {accepts} (click it to select it).",
+                 boxes=4)
+        wrap(col, c, "Buttons: import takes the Sigma's, + makes one at the 3D cursor, the dropper adds a row to pick one "
+                     "you have, x leaves it out. Hover any of them to be told again.", boxes=4)
 
 
 def draw_section(b, c, sec, p, ins, k):
@@ -219,11 +250,12 @@ def draw_section(b, c, sec, p, ins, k):
                    "are only for finding and selecting the objects.", icon='INFO', boxes=2)
     st = _state(s, sec.title)
     if st is not None:
-        wrap(b, c, "Look in: a group (an empty with them under it) to find this part's objects in. Empty: the whole "
-                   "asset.", boxes=2)
-        b.prop(st, "scope", text="", icon='OUTLINER_OB_EMPTY')
+        row = b.split(factor=0.45, align=True)
+        row.label(text="Look in", icon='VIEWZOOM')
+        row.prop(st, "scope", text="")
+    col = b.column(align=True)
     for role in sec.roles:
-        draw_role(b.box(), c, sec, role, p, k)
+        draw_role(col, c, sec, role, p, k)
     row = b.row(align=True)
     if ins == "block":
         row.operator("sigma.remove_kit", icon='TRASH').section = sec.title
@@ -274,6 +306,11 @@ def draw_car_kit(l, c):
             if opened:
                 draw_section(b, c, sec, p, ins, k)
     draw_parts(l, c)
+    for prop, icon, draw in (("open_preview", 'HIDE_OFF', preview.draw), ("open_tuning", 'PREFERENCES', tuning.draw)):
+        box = l.box()
+        box.prop(s, prop, icon='DOWNARROW_HLT' if getattr(s, prop) else 'RIGHTARROW', emboss=False)
+        if getattr(s, prop):
+            draw(box.column(), c, wrap)
     wrap(l, c, "The Sigma's objects land where the Sigma has them, stretched to your body. Move each where it belongs: "
                "wheel hubs at the wheel centres, the seat where a bum goes, the engine mount in the engine bay. Move "
                "and turn them; never scale the hinges.", icon='INFO')
@@ -283,10 +320,9 @@ def draw_parts(l, c):
     s = c.scene.sigma
     box = l.box()
     box.label(text="Parts that go with your car", icon='MOD_BUILD')
-    wrap(box, c, "Doors, a hood, a trunk lid, seats: parts of their own that fit your car's slots, in the same file and "
-                 "script. Each starts as the game's own part of that kind, so it works like one (a door opens, a seat "
-                 "is sat in), and takes your mesh. To make one: open Seats, doors and body panels above, and press "
-                 "Make a ... for it on a slot.", boxes=2)
+    wrap(box, c, "Doors, hoods, trunk lids, seats: parts of their own, in the same file and script, working as the game's "
+                 "do. Make one on a slot in Seats, doors and body panels: select your mesh, press the mesh button by the "
+                 "slot.", boxes=2)
     if not s.extras:
         return
     for i, e in enumerate(s.extras):
@@ -411,13 +447,26 @@ STEPS = [
 ]
 
 
+STEP_HELP = [
+    "Set up: find the game and install the helper tools (once). A tick: done",
+    "Start an asset: one top object with everything of it under it. Import a game object, start from an empty, or "
+    "copy a game object under a new name",
+    "Name it: the id the game knows it by (pick it once), the name players see, and your mod's folder",
+    "Build it: what your asset is made of. For a car: the parts a car needs and the nice-to-haves, each found among "
+    "your objects or taken from the Sigma",
+    "Colliders: what things bump into. Made from your meshes, as objects you can see and keep",
+    "Script: the Lua file next to the model that tells SigmaMod what each object does",
+    "Put it in the game: checks, then the export into your mod's folder, and what the game said about it",
+]
+
+
 def current_step(c):
     done = [d(c) for _, d, _ in STEPS]
     return done, next((i for i, d in enumerate(done) if not d), len(STEPS))
 
 
 class SIGMA_OT_open_build(bpy.types.Operator):
-    """Show it in the Build step"""
+    """Open the Build step at this part of the car, to see what it needs and what's missing"""
     bl_idname = "sigma.open_build"
     bl_label = "Show me"
 
@@ -435,6 +484,10 @@ class SIGMA_OT_open_step(bpy.types.Operator):
     bl_idname = "sigma.open_step"
     bl_label = "Open step"
 
+    @classmethod
+    def description(cls, context, props):
+        return STEP_HELP[props.step] if 0 <= props.step < len(STEP_HELP) else cls.__doc__
+
     step: bpy.props.IntProperty()
 
     def execute(self, context):
@@ -448,6 +501,7 @@ class SIGMA_PT_clunky(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "SigmaMod"
     bl_label = "Clunky, the Apoca Sigma helper for coughing babies"
+    bl_description = "Says what's wrong with what you're doing, one thing at a time, with the button that fixes it"
     bl_order = 0
 
     def draw(self, context):
@@ -461,8 +515,7 @@ class SIGMA_PT_clunky(bpy.types.Panel):
         left = split.column()
         if mascot.icon():
             left.template_icon(icon_value=mascot.icon(), scale=4.5)
-        else:
-            left.label(icon='QUESTION')
+        left.operator("sigma.about_clunky", text="Clunky", icon='QUESTION', emboss=False)   # hover: who he is
         bubble = split.box()
         icon = {'ERROR': 'CANCEL', 'WARNING': 'ERROR', 'INFO': 'INFO'}.get(prob.level if prob else "", 'NONE')
         wrap(bubble, context, text, icon=icon, boxes=1, frac=1 - frac)
@@ -493,6 +546,7 @@ class SIGMA_PT_guide(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "SigmaMod"
     bl_label = "Guide"
+    bl_description = "Seven steps from nothing to your asset in the game; each is ticked off when it's done"
     bl_order = 1
 
     def draw(self, context):
@@ -516,6 +570,7 @@ class SIGMA_PT_tools(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "SigmaMod"
     bl_label = "Tools"
+    bl_description = "Every button of the guide in one place, for when you know what you want"
     bl_options = {'DEFAULT_CLOSED'}
     bl_order = 2
 
@@ -536,7 +591,7 @@ class SIGMA_OT_car_input(bpy.types.Operator):
     bl_idname = "sigma.car_input"
     bl_label = "Rebuild car_input.lua"
 
-    filepath: bpy.props.StringProperty(subtype='FILE_PATH')
+    filepath: bpy.props.StringProperty(subtype='FILE_PATH', description="Where to write it")
     filter_glob: bpy.props.StringProperty(default="*.fsm.json", options={'HIDDEN'})
 
     def invoke(self, context, event):
@@ -562,6 +617,7 @@ class SIGMA_PT_advanced(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "SigmaMod"
     bl_label = "Advanced"
+    bl_description = "Things you shouldn't need: for SigmaMod's own library, and fixing files by hand"
     bl_options = {'DEFAULT_CLOSED'}
     bl_order = 3
 

@@ -77,12 +77,23 @@ walks through making an asset, one step at a time, each ticked off when it's don
    `volume`, `solid`, `hull`) are explained in the script's own header, and the add-on shows that explanation on every
    object: what to make it from, whether it's seen, clicked or bumped into. A section the script already has without
    its `-- ##` block, written by hand, counts as in the car and is left alone.
-   **Parts that go with the car** (doors, hood, trunk lid, seats, bumpers): a slot's *Make a door for it* starts one
-   from the game's own part of that kind (pick which), set where the slot is, so it opens, latches and saves as the
-   game's do. *Use my mesh for it* swaps your mesh in, keeping what makes it the game's part, and *Replace its
-   colliders* trades the game part's colliders for ones made from your mesh. Each part is a top object of its own in
-   the same `.glb` and a template of its own in the same script (`-- ### Part:` blocks): one file can hold any number
-   of templates, each naming its root with `model`.
+   Seats, doors, hoods, trunk lids, bumpers, roof racks and radios take as many slots as the car has: a slot is an
+   empty that takes any part of its kind, so a van has five doors and a hearse two lids.
+   **Parts that go with the car** (doors, hood, trunk lid, seats, bumpers): select your mesh and press the mesh button
+   on a slot. The part works as the game's do (it opens, latches and saves), lent its workings by one of the game's
+   parts of that kind, which you never see: your mesh is the part, where you modelled it, with colliders made from it
+   (the game part's click and fit boxes are kept). The import button fits one of the game's parts as it is instead.
+   Each part is a top object of its own in the same `.glb` and a template of its own in the same script
+   (`-- ### Part:` blocks): one file can hold any number of templates, each naming its root with `model`.
+   **Preview** shows the car as the game will: the game's parts on your slots and mounts (*Randomize* picks others,
+   as a player might fit them), the game's wheels on your hubs where the springs hold them with the car standing
+   still, the ground under them with the ground clearance, and every door, hood and lid swung open as far as its own
+   FSM swings it. None of it is exported. A door's, hood's or lid's slot must not be turned: the game turns it back
+   straight each time the part shuts.
+   **Tuning**: mass, driven wheels, steering lock, brake torque, each axle's spring travel, force and damping, the
+   gears and the differential (open, locked or limited slip; a centre one for all-wheel drive), written into the
+   script as a `-- ## Tuning` block before the car's template line. The preview's wheels move as the springs would.
+   The final drive belongs to the engine fitted (each of the game's engines sets its own).
 5. **Colliders.** `colliders.py`'s convex pieces from the selected mesh, made as Blender objects, so they are kept in
    the `.blend` and exported with everything else. Made again, they replace the old ones.
 6. **Script.** A starting script for the kind of asset, opened in Blender's text editor; *Add a part* writes

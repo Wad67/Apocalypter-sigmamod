@@ -43,7 +43,7 @@ def mesh_arrays(context, obj):
 
 def holder_items(self, context):
     o = context.active_object
-    items = [("SELF", "Directly under the object", "")]
+    items = [("SELF", "Directly under the object", "The colliders go straight under the mesh they're made from")]
     if o:
         items += [("OBJ:" + c.name, c.name, "An empty under the object") for c in o.children_recursive if c.type == 'EMPTY']
     holder_items.cache = items
@@ -57,11 +57,15 @@ the old ones are replaced"""
     bl_label = "Make colliders from mesh"
     bl_options = {'REGISTER', 'UNDO'}
 
-    detail: bpy.props.EnumProperty(name="Detail", items=DETAIL, default='0.05')
+    detail: bpy.props.EnumProperty(name="Detail", items=DETAIL, default='0.05',
+                                   description="How closely the colliders follow the mesh: finer is more pieces, slower to "
+                                               "make and a little slower in game")
     target: bpy.props.StringProperty(options={'HIDDEN', 'SKIP_SAVE'}, description="The mesh (default: the active object)")
     replace_in: bpy.props.StringProperty(options={'HIDDEN', 'SKIP_SAVE'},
                                          description="A part whose game colliders go once these are made")
-    into: bpy.props.EnumProperty(name="Put them", items=holder_items)
+    into: bpy.props.EnumProperty(name="Put them", items=holder_items,
+                                 description="Which object the colliders go under: they move with it in game (a door's "
+                                             "colliders under the door swing with it)")
 
     @classmethod
     def poll(cls, context):
@@ -135,12 +139,18 @@ the old ones are replaced"""
                 pass
         gone = 0
         top = bpy.data.objects.get(self.replace_name) if self.replace_name and count else None
-        if top is not None:   # the new ones exist: the game part's old ones can go
-            for o in [o for o in [top] + list(top.children_recursive) if o.get("sigma") == "collider" and not o.get("generated")]:
+        if top is not None:   # the new ones exist: the game part's solid shape can go (its click and fit boxes stay)
+            for o in [o for o in [top] + list(top.children_recursive) if game_shape(o)]:
                 bpy.data.objects.remove(o)
                 gone += 1
         self.report({'INFO'}, f"{count} colliders for '{obj.name}'" + (" (mirrored halves)" if bool(d["mirrored"]) else "")
                     + (f"; the game's {gone} old ones deleted" if gone else ""))
+
+
+def game_shape(o):
+    """One of a game part's colliders that only stand for its shape: solid boxes and meshes. Not its trigger boxes
+    (where it's clicked, or held to fit it) nor its sphere (how it rolls about loose), which work whatever it looks like."""
+    return o.get("sigma") == "collider" and not o.get("generated") and not o.get("trigger") and o.get("shape") in ("box", "mesh")
 
 
 class SIGMA_OT_remove_colliders(bpy.types.Operator):

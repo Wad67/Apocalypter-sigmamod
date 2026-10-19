@@ -48,7 +48,8 @@ def is_vehicle(path):
 
 
 class SIGMA_OT_find_game(bpy.types.Operator):
-    """Look for Apocalypter in Steam's folders"""
+    """Look for Apocalypter where Steam keeps games: Steam's own folder (on Windows, where the registry says it is),
+every Steam library folder, and the folder the game's Steam manifest names. Not found: pick the folder by hand below"""
     bl_idname = "sigma.find_game"
     bl_label = "Find the game"
 
@@ -70,7 +71,8 @@ done once in game"""
     bl_property = "prefab"
     bl_options = {'REGISTER', 'UNDO'}
 
-    prefab: bpy.props.EnumProperty(name="Game object", items=export_items)
+    prefab: bpy.props.EnumProperty(name="Game object", items=export_items,
+                                   description="One of the game's objects, from Export All")
 
     @classmethod
     def poll(cls, context):
@@ -114,8 +116,11 @@ class SIGMA_OT_new_root(bpy.types.Operator):
     bl_label = "Start from scratch"
     bl_options = {'REGISTER', 'UNDO'}
 
-    name: bpy.props.StringProperty(name="Name", default="My Asset")
-    kind: bpy.props.EnumProperty(name="What is it?", items=[k for k in KINDS if k[0] in ('CAR', 'ATTACHABLE')])
+    name: bpy.props.StringProperty(name="Name", default="My Asset",
+                                   description="The name of your asset's top object in Blender (the id and the name "
+                                               "players see are set in step 3)")
+    kind: bpy.props.EnumProperty(name="What is it?", items=[k for k in KINDS if k[0] in ('CAR', 'ATTACHABLE')],
+                                 description="A car of your own, or an item that bolts onto cars")
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self, width=380)
@@ -143,7 +148,8 @@ class SIGMA_OT_new_variant(bpy.types.Operator):
     bl_property = "prefab"
     bl_options = {'REGISTER', 'UNDO'}
 
-    prefab: bpy.props.EnumProperty(name="Game object", items=export_items)
+    prefab: bpy.props.EnumProperty(name="Game object", items=export_items,
+                                   description="One of the game's objects, from Export All")
 
     @classmethod
     def poll(cls, context):
@@ -257,7 +263,9 @@ your file"""
     bl_property = "material"
     bl_options = {'REGISTER', 'UNDO'}
 
-    material: bpy.props.EnumProperty(name="Material", items=material_items)
+    material: bpy.props.EnumProperty(name="Material", items=material_items,
+                                     description="One of the game's materials: the game uses its own textures for it, so it "
+                                                 "costs nothing in your file")
 
     @classmethod
     def poll(cls, context):
@@ -421,12 +429,13 @@ changed copy of the game object they came from"""
 
 
 class SIGMA_OT_set_kind(bpy.types.Operator):
-    """Say what kind of asset this is"""
+    """Say what kind of asset this is: a car of your own, a changed game car, an item that bolts on, another changed
+game object, or a game object under a new name. It decides what the Build step asks of you"""
     bl_idname = "sigma.set_kind"
     bl_label = "Set the kind"
     bl_options = {'REGISTER', 'UNDO'}
 
-    kind: bpy.props.EnumProperty(items=KINDS)
+    kind: bpy.props.EnumProperty(items=KINDS, description="What kind of asset this is")
 
     def execute(self, context):
         context.scene.sigma.kind = self.kind

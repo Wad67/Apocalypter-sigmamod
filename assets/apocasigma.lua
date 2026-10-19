@@ -157,25 +157,24 @@ g.nodes.hinge_gearlever.SphereCollider = { isTrigger = true, radius = 0.07 }
 for _, hinge in ipairs({ "hinge_headlight", "hinge_headlight.001" }) do parts.slot(g, hinge, "headlight", { sphere = 0.04 }) end
 
 -- ## Seats, doors and body panels
--- Slots for the game's seats, doors, hood, trunk lid, bumpers, roof rack, radio and windshield. Each is an empty
--- where the part clips in; leave out what your car hasn't got.
--- - hinge_seat_driver? [spot]: Driver's seat slot. An empty where the driver's seat clips in
--- - hinge_seat_passenger? [spot]: Passenger seat slot. Where the passenger seat clips in
--- - hinge_seat_rear? [spot]: Rear seat slot. Where the rear seat clips in
--- - hinge_door_L? [spot]: Left door slot. Where the left door hangs: at its front edge
--- - hinge_door_R? [spot]: Right door slot. Where the right door hangs: at its front edge
--- - hinge_hood? [spot]: Hood slot. Where the hood clips on
--- - hinge_trunk? [spot]: Trunk lid slot. Where the trunk lid clips on
--- - hinge_bumper_front? [spot]: Front bumper slot. Where the front bumper clips on
--- - hinge_bumper_rear? [spot]: Rear bumper slot. Where the rear bumper clips on
--- - hinge_roofrack? [spot]: Roof rack slot. On the roof, where a roof rack clips on
--- - hinge_radio? [spot]: Radio slot. In the dashboard, where a radio clips in
+-- Slots for the game's seats, doors, hoods, trunk lids, bumpers, roof racks and radios, as many of each as your car
+-- has: a van can have five doors, a hearse two trunk lids. Each slot is an empty where a part of that kind clips in,
+-- and any part of that kind fits any of its slots. Leave out what your car hasn't got.
+-- - hinge_seat_driver?* [spot]: Seat slot. An empty where a seat clips in. One per seat: the driver's, the passenger's, a rear bench
+-- - hinge_door_L?* [spot]: Door slot. An empty where a door hangs, at its front edge: the door swings out about it. One per door
+-- - hinge_hood?* [spot]: Hood slot. An empty where a hood clips on. One per hood
+-- - hinge_trunk?* [spot]: Trunk lid slot. An empty where a trunk lid clips on. One per trunk lid
+-- - hinge_bumper_front?* [spot]: Bumper slot. An empty where a bumper clips on. One per bumper: front, rear
+-- - hinge_roofrack?* [spot]: Roof rack slot. An empty on the roof where a roof rack clips on. One per rack
+-- - hinge_radio?* [spot]: Radio slot. An empty in the dashboard where a radio clips in. One per radio
 -- - hinge_windshield? [spot]: Windshield slot. Where the windshield clips in
-for hinge, accepts in pairs({
-  hinge_seat_driver = "seat", hinge_seat_passenger = "seat", hinge_seat_rear = "seat",
-  hinge_door_L = "door", hinge_door_R = "door", hinge_hood = "hood", hinge_trunk = "trunk",
-  hinge_bumper_front = "bumper", hinge_bumper_rear = "bumper", hinge_roofrack = "roofrack", hinge_radio = "radio",
-}) do parts.slot(g, hinge, accepts, { box = true }) end
+for _, hinge in ipairs({ "hinge_seat_driver", "hinge_seat_passenger", "hinge_seat_rear" }) do parts.slot(g, hinge, "seat", { box = true }) end
+for _, hinge in ipairs({ "hinge_door_L", "hinge_door_R" }) do parts.slot(g, hinge, "door", { box = true }) end
+for _, hinge in ipairs({ "hinge_hood" }) do parts.slot(g, hinge, "hood", { box = true }) end
+for _, hinge in ipairs({ "hinge_trunk" }) do parts.slot(g, hinge, "trunk", { box = true }) end
+for _, hinge in ipairs({ "hinge_bumper_front", "hinge_bumper_rear" }) do parts.slot(g, hinge, "bumper", { box = true }) end
+for _, hinge in ipairs({ "hinge_roofrack" }) do parts.slot(g, hinge, "roofrack", { box = true }) end
+for _, hinge in ipairs({ "hinge_radio" }) do parts.slot(g, hinge, "radio", { box = true }) end
 parts.slot(g, "hinge_windshield", "windshield", { sphere = 0.05 })
 
 -- ## Interior light

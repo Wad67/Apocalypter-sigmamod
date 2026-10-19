@@ -263,9 +263,18 @@ def car_template_at(lines, asset_id):
     return tmpl[-1] if tmpl else first_part
 
 
-def insert(src, code, asset_id=None):
-    lines = src.split("\n")
+def code_end(lines, asset_id):
+    """Where new code goes: before the add-on's Tuning block (which has to come after every wheel), else before the
+    car's template line."""
     at = car_template_at(lines, asset_id)
+    tune = next((i for i, l in enumerate(lines[:at]) if l == "-- ## Tuning"), None)
+    return tune if tune is not None else at
+
+
+def insert(src, code, asset_id=None, end=False):
+    """code into the script before the car's template line: before the Tuning block too, unless it is that block (end)."""
+    lines = src.split("\n")
+    at = car_template_at(lines, asset_id) if end else code_end(lines, asset_id)
     before = [""] if at > 0 and lines[at - 1].strip() else []   # never against a kit block: it ends at a blank line
     return "\n".join(lines[:at] + before + code.split("\n") + [""] + lines[at:])
 
@@ -275,7 +284,8 @@ class SIGMA_OT_make_script(bpy.types.Operator):
     bl_idname = "sigma.make_script"
     bl_label = "Make the script"
 
-    kind: bpy.props.EnumProperty(name="What is it?", items=KINDS)
+    kind: bpy.props.EnumProperty(name="What is it?", items=KINDS,
+                                 description="What kind of asset the script is for: each starts with what that kind needs")
 
     @classmethod
     def poll(cls, context):
@@ -341,7 +351,9 @@ parts library; the code, how SigmaMod's own assets use each part"""
     bl_label = "Add a part"
     bl_property = "part"
 
-    part: bpy.props.EnumProperty(name="Part", items=part_items)
+    part: bpy.props.EnumProperty(name="Part", items=part_items,
+                                 description="One of SigmaMod's parts library: written into your script with the selected "
+                                             "objects' names")
 
     @classmethod
     def poll(cls, context):

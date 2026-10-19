@@ -33,14 +33,17 @@ class SigmaExtra(bpy.types.PropertyGroup):
                                     description="The part's top object: it, and everything under it, is the part")
     asset_id: bpy.props.StringProperty(name="Id", update=_clean,
                                        description="What the game knows the part by: lowercase, digits and _")
-    display_name: bpy.props.StringProperty(name="Name", description="What players see")
-    slot: bpy.props.StringProperty(description="The car's slot it's for (its name in the Sigma's kit)")
+    display_name: bpy.props.StringProperty(name="Name", description="What players see when they look at the part")
+    slot: bpy.props.StringProperty(description="The car's slot it was made at (the slot object's name)")
+    hinge: bpy.props.PointerProperty(type=bpy.types.Object, description="The car's slot it was made at")
     accepts: bpy.props.StringProperty(description="What kind of part it is (door, hood, seat...)")
     donor: bpy.props.StringProperty(description="The game part it started as")
 
 
-def for_slot(s, slot):
-    return next((e for e in s.extras if e.slot == slot), None)
+def for_slot(s, hinge, role=None):
+    """The part made at this slot object (or, from a file made before a role could have many slots, at the role)."""
+    return next((e for e in s.extras if e.hinge == hinge), None) or \
+        next((e for e in s.extras if e.hinge is None and e.slot in (hinge.name, role)), None)
 
 
 def objects(s):
@@ -126,8 +129,22 @@ Then swap your mesh in with "Use my mesh for it". It's a part of its own, in the
     bl_options = {'REGISTER', 'UNDO'}
 
     slot: bpy.props.StringProperty()
+    role: bpy.props.StringProperty()
     accepts: bpy.props.StringProperty()
-    donor: bpy.props.EnumProperty(name="Start from", items=donor_items)
+    donor: bpy.props.EnumProperty(name="Start from", items=donor_items,
+                                  description="The game's part this one starts as: it lends its workings (how it opens, "
+                                              "clips on, is saved) and, until you put yours on, its look")
+    mesh: bpy.props.StringProperty(options={'SKIP_SAVE'},
+                                   description="Your mesh: the part is made of it, the game's part only lends what it does")
+
+    @classmethod
+    def description(cls, context, props):
+        if props.mesh:
+            return (f"Make '{props.mesh}' this slot's {props.accepts}: a part of its own that works as the game's "
+                    f"{props.accepts}s do (one of them lends it its workings, you never see it), looking like your mesh, "
+                    "where your mesh is, with colliders made from it")
+        return (f"Fit one of the game's {props.accepts}s here as it is (pick which), to see it on your car or to start "
+                "from. Its own look stays until you put your mesh on it")
 
     @classmethod
     def poll(cls, context):
@@ -137,6 +154,9 @@ Then swap your mesh in with "Use my mesh for it". It's a part of its own, in the
         if not gamedata.part_ids().get(self.accepts):
             self.report({'ERROR'}, f"No {self.accepts} in the game's exports. In game: Export All first (step 2 says how)")
             return {'CANCELLED'}
+        if self.mesh:   # its look is the artist's: which game part lends the workings hardly matters, so no question
+            self.donor = donor_items(self, context)[0][0]
+            return self.execute(context)
         context.window_manager.invoke_search_popup(self)
         return {'RUNNING_MODAL'}
 
@@ -160,7 +180,7 @@ Then swap your mesh in with "Use my mesh for it". It's a part of its own, in the
         s = context.scene.sigma
         k = sigmasrc.kit()
         context.view_layer.update()
-        hinge = next((r.obj for r in s.roles if r.role == self.slot and r.obj is not None), None)
+        hinge = context.scene.objects.get(self.slot)
         before = set(context.scene.objects)
         bpy.ops.import_scene.gltf(filepath=path)
         new = [o for o in context.scene.objects if o not in before]
@@ -172,10 +192,10 @@ Then swap your mesh in with "Use my mesh for it". It's a part of its own, in the
         if hinge is not None:   # where it sits when fitted: on the slot, turned as it is
             loc, rot, _ = hinge.matrix_world.decompose()
             root.matrix_world = Matrix.LocRotScale(loc, rot, root.matrix_world.to_scale())   # its own scale stays
-        role = kit.role_of(k, self.slot) if k else None
+        role = kit.role_of(k, self.role or self.slot) if k else None
         label = (role.label if role else self.accepts).replace(" slot", "")
         e = s.extras.add()
-        e.slot, e.accepts, e.donor = self.slot, self.accepts, self.donor
+        e.slot, e.hinge, e.accepts, e.donor = self.slot, hinge, self.accepts, self.donor
         base = s.asset_id + "_" + assets.clean_id(self.slot.replace("hinge_", ""))
         pid, n = base, 2
         while any(x.asset_id == pid for x in s.extras) or pid == s.asset_id:
@@ -190,10 +210,71 @@ Then swap your mesh in with "Use my mesh for it". It's a part of its own, in the
             o.select_set(False)
         root.select_set(True)
         context.view_layer.objects.active = root
+        mine = context.scene.objects.get(self.mesh) if self.mesh else None
+        if mine is not None:
+            made = self.make_mine(context, root, mine)
+            _poke()
+            self.report({'INFO'}, f"'{root.name}' is your mesh now, working as the game's {self.accepts} does" +
+                        ("; its colliders are being made from it" if made else
+                         ". Its colliders are still the game's shape: install the helper tools (step 1), then Replace its colliders"))
+            return True
         _poke()
         self.report({'INFO'}, f"Made '{root.name}' from the game's {self.donor}, at the slot. Now your mesh: select it, "
                               "then the game part's mesh (last), and Use my mesh for it")
         return True
+
+    def make_mine(self, context, root, mine):
+        """The part takes the artist's mesh: on the game part's main mesh, the game's other meshes (handle, trim, glass)
+        gone (the game stops drawing what the template hasn't got, its workings stay), its colliders made from it."""
+        visual = [o for o in [root] + list(root.children_recursive) if o.type == 'MESH' and o.get("sigma") != "collider"]
+        target = max(visual, key=lambda o: (o is root or o.parent is root, len(o.data.vertices)), default=None)
+        if target is None:
+            raise RuntimeError(f"The game's {self.donor} has no mesh to put yours on")
+        for o in visual:
+            if o is target or o is root or target in o.children_recursive:
+                continue
+            for c in list(o.children):   # anything under it that isn't its look stays, where it is
+                w = c.matrix_world.copy()
+                c.parent = o.parent
+                c.matrix_world = w
+        for o in visual:
+            if o is not target and o is not root and target not in o.children_recursive and o.name in bpy.data.objects:
+                if not o.children:
+                    bpy.data.objects.remove(o)
+        swap_mesh(context, mine, target)
+        if not jobs.tools_ready():
+            return False
+        bpy.ops.sigma.make_colliders('EXEC_DEFAULT', target=target.name, replace_in=root.name)
+        return True
+
+
+def swap_mesh(context, mine, target):
+    """target (the game part's mesh) takes mine's look, where mine is; mine goes, what was under it moves to target."""
+    context.view_layer.update()   # every matrix current before anything is moved by one
+    m = target.matrix_world.inverted() @ mine.matrix_world
+    # as it exports: its modifiers applied (Mirror, Solidify...), not just the mesh under them
+    me = bpy.data.meshes.new_from_object(mine.evaluated_get(context.evaluated_depsgraph_get()),
+                                         preserve_all_data_layers=True, depsgraph=context.evaluated_depsgraph_get())
+    me.transform(m)
+    if m.determinant() < 0:   # mirrored on the way: faces would point inwards
+        me.flip_normals()
+    old = target.data
+    target.data = me
+    if old.users == 0:
+        bpy.data.meshes.remove(old)
+    top = target
+    while top.parent:
+        top = top.parent
+    target[SWAPPED] = True
+    top[PART_SWAPPED] = True
+    for c in list(mine.children):   # what was under the artist's mesh stays where it is, under the part
+        w = c.matrix_world.copy()
+        c.parent = target
+        c.matrix_world = w
+    mesh_of_mine = mine.data
+    bpy.data.objects.remove(mine)
+    if mesh_of_mine.users == 0:
+        bpy.data.meshes.remove(mesh_of_mine)
 
 
 class SIGMA_OT_use_my_mesh(bpy.types.Operator):
@@ -210,33 +291,8 @@ The game's object keeps everything that makes it the game's part; it just looks 
         return a is not None and a.type == 'MESH' and len(others) == 1 and others[0].type == 'MESH'
 
     def execute(self, context):
-        context.view_layer.update()   # every matrix current before anything is moved by one
         target = context.active_object
-        mine = next(o for o in context.selected_objects if o != target)
-        m = target.matrix_world.inverted() @ mine.matrix_world
-        # as it exports: its modifiers applied (Mirror, Solidify...), not just the mesh under them
-        me = bpy.data.meshes.new_from_object(mine.evaluated_get(context.evaluated_depsgraph_get()),
-                                             preserve_all_data_layers=True, depsgraph=context.evaluated_depsgraph_get())
-        me.transform(m)
-        if m.determinant() < 0:   # mirrored on the way: faces would point inwards
-            me.flip_normals()
-        old = target.data
-        target.data = me
-        if old.users == 0:
-            bpy.data.meshes.remove(old)
-        top = target
-        while top.parent:
-            top = top.parent
-        target[SWAPPED] = True
-        top[PART_SWAPPED] = True
-        for c in list(mine.children):   # what was under the artist's mesh stays where it is, under the part
-            w = c.matrix_world.copy()
-            c.parent = target
-            c.matrix_world = w
-        mesh_of_mine = mine.data
-        bpy.data.objects.remove(mine)
-        if mesh_of_mine.users == 0:
-            bpy.data.meshes.remove(mesh_of_mine)
+        swap_mesh(context, next(o for o in context.selected_objects if o != target), target)
         _poke()
         self.report({'INFO'}, f"'{target.name}' looks like yours now. Its colliders are still the game part's shape: "
                               "Clunky will offer to replace them")
@@ -288,6 +344,12 @@ class SIGMA_OT_select_objects(bpy.types.Operator):
 
     names: bpy.props.StringProperty()
 
+    @classmethod
+    def description(cls, context, props):
+        names = [n for n in props.names.split("\n") if n]
+        listed = ", ".join(names[:8]) + (f" and {len(names) - 8} more" if len(names) > 8 else "")
+        return "Select and show: " + listed + "" if names else cls.__doc__
+
     def execute(self, context):
         objs = [bpy.data.objects[n] for n in self.names.split("\n") if n in bpy.data.objects]
         objs = [o for o in objs if o.name in context.view_layer.objects]
@@ -309,6 +371,12 @@ class SIGMA_OT_delete_objects(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     names: bpy.props.StringProperty()
+
+    @classmethod
+    def description(cls, context, props):
+        names = [n for n in props.names.split("\n") if n]
+        listed = ", ".join(names[:8]) + (f" and {len(names) - 8} more" if len(names) > 8 else "")
+        return "Delete: " + listed + " (Ctrl+Z brings them back)" if names else cls.__doc__
 
     def execute(self, context):
         n = 0

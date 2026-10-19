@@ -6,7 +6,7 @@ import re
 
 import bpy
 
-from . import assets, gamedata, jobs, paths, script
+from . import assets, colliders, gamedata, jobs, paths, script
 
 ERROR, WARNING, INFO = 'ERROR', 'WARNING', 'INFO'
 ID_RE = re.compile(r"^[a-z0-9_]+$")
@@ -133,6 +133,14 @@ def run(context):
             _kit_checks(s, add)
 
     _scene_checks(context, s, add)
+    if kind == 'CAR':
+        from . import preview
+        turned = preview.turned_slots(context)
+        if turned:
+            add(WARNING, f"{_names(turned)} {'is a slot' if len(turned) == 1 else 'are slots'} for a part that swings "
+                         "open, and turned. The game turns it back to straight the first time the part shuts, so it "
+                         "jumps. Keep the slot straight (move it, don't turn it).", "sigma.straighten", "Straighten it",
+                {"names": "\n".join(o.name for o in turned)}, key="turned")
 
     # what's lying around outside the asset
     loose = [o for o in context.scene.objects if o not in objs and o.parent is None and o != s.root
@@ -171,6 +179,7 @@ def run(context):
     from . import extras
     parts = {e.root for e in s.extras if e.root is not None}
     others = [o for o in context.scene.objects if o.parent is None and o != s.root and o not in loose and o not in parts
+              and not o.get("sigma_preview")
               and (o.type == 'MESH' or o.children)]
     if others:
         add(INFO, f"{_names(others)} {'is' if len(others) == 1 else 'are'} exported too. The game ignores "
@@ -245,7 +254,8 @@ def run(context):
         if m and m.group(1) != s.root.name and m.group(1) in context.scene.objects:
             add(WARNING, f"The script says the asset is '{m.group(1)}', the panel says '{s.root.name}'. One of you is wrong.",
                 key="modelmismatch")
-        if not m and len([o for o in context.scene.objects if o.parent is None]) > 1 and s.root.name not in ids:
+        if not m and len([o for o in context.scene.objects if o.parent is None and not o.get("sigma_preview")]) > 1 \
+                and s.root.name not in ids:
             add(WARNING, f'There\'s more than one top object and the script doesn\'t say which is the asset. Add  '
                          f'g.model = "{s.root.name}"', key="nomodel")
 
@@ -370,7 +380,7 @@ def _scene_checks(context, s, add):
             add(ERROR, f"The part '{e.root.name}' mixes {' AND '.join(sorted(donors))}. One game part per part.",
                 key="extramix:" + e.root.name)
         swapped = e.root.get(extras.PART_SWAPPED)
-        if swapped and any(o.get("sigma") == "collider" and not o.get("generated") for o in under):
+        if swapped and any(colliders.game_shape(o) for o in under):
             add(WARNING, f"'{e.root.name}' has your mesh but still the game {e.accepts}'s colliders, the old shape. "
                          "You'd bump into a ghost of the game's part.",
                 "sigma.replace_part_colliders", "Replace its colliders", {"root": e.root.name}, key="extracol:" + e.root.name)

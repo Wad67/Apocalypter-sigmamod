@@ -4,7 +4,7 @@
 # game's textures) behind its buttons.
 import bpy
 
-from . import assets, checks, colliders, export, extras, jobs, kit, mascot, paths, script, ui
+from . import assets, checks, colliders, export, extras, jobs, kit, mascot, paths, preview, script, tuning, ui
 from .script import KINDS
 
 
@@ -19,17 +19,36 @@ class SigmaSettings(bpy.types.PropertyGroup):
     extras: bpy.props.CollectionProperty(type=extras.SigmaExtra)
     sections: bpy.props.CollectionProperty(type=kit.SigmaSectionState)
     open_kit: bpy.props.StringProperty()
+    open_role: bpy.props.StringProperty()
     root: bpy.props.PointerProperty(type=bpy.types.Object, name="Root",
                                     description="The asset's top object: the asset is it and everything under it")
     asset_id: bpy.props.StringProperty(name="Id", update=clean_id,
                                        description="What the game knows it by: lowercase, digits and _. Don't change it once it's in people's saves")
-    display_name: bpy.props.StringProperty(name="Name", description="What players see")
+    display_name: bpy.props.StringProperty(name="Name", description="What players see: the name shown when they look at "
+                                                                     "it, in shops and in the spawner. Change it whenever you like")
     mod_folder: bpy.props.StringProperty(name="Folder", default="MyAssets",
                                          description="Your mod's folder in BepInEx/plugins; the asset goes into its sigma_assets folder")
-    kind: bpy.props.EnumProperty(name="Kind", items=KINDS, default='CAR')
+    kind: bpy.props.EnumProperty(name="Kind", items=KINDS, default='CAR',
+                                 description="What kind of asset this is: it decides what the Build step asks of you and "
+                                             "how the script starts")
     show_live: bpy.props.BoolProperty(name="Live exports", description="Also list the live exports (the car nearest you, parts fitted)")
     last_export: bpy.props.StringProperty()
     open_step: bpy.props.IntProperty(default=-1)
+    open_tuning: bpy.props.BoolProperty(name="Tuning", description="Show or hide the car's tuning: mass, springs, "
+                                        "steering, brakes, gears, differential")
+    open_preview: bpy.props.BoolProperty(name="Preview", description="Show or hide the preview: the game's parts on "
+                                         "your slots, its wheels on your hubs, doors opened")
+    tuning: bpy.props.PointerProperty(type=tuning.SigmaTuning)
+    preview_parts: bpy.props.BoolProperty(description="The game's parts are shown on the slots")
+    preview_wheels: bpy.props.BoolProperty(description="The game's wheels are shown on the hubs")
+    preview_seed: bpy.props.IntProperty(description="Which game parts the preview picked (0: the first of each kind)")
+    preview_open: bpy.props.FloatProperty(name="Doors and lids open", subtype='FACTOR', min=0, max=1,
+                                          update=lambda self, context: preview.update(context),
+                                          description="Swing every door, hood and lid open, as far as each part's own "
+                                                      "game FSM opens it (shown on the preview's parts, and as wire "
+                                                      "ghosts of your own parts)")
+    preview_ground: bpy.props.FloatProperty(description="Where the ground is under the previewed wheels (Z)")
+    preview_has_ground: bpy.props.BoolProperty()
 
 
 class SigmaPreferences(bpy.types.AddonPreferences):
@@ -49,8 +68,9 @@ class SigmaPreferences(bpy.types.AddonPreferences):
         l.operator("sigma.install_tools", icon='IMPORT')
 
 
-classes = kit.props + extras.props + (SigmaSettings, SigmaPreferences) + jobs.classes + assets.classes + colliders.classes + checks.classes \
-    + script.classes + export.classes + kit.classes + extras.classes + mascot.classes + ui.classes
+classes = kit.props + extras.props + tuning.props + (SigmaSettings, SigmaPreferences) + jobs.classes + assets.classes + colliders.classes + checks.classes \
+    + script.classes + export.classes + kit.classes + extras.classes + mascot.classes + ui.classes + tuning.classes \
+    + preview.classes
 
 
 def register():
