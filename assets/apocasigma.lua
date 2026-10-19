@@ -18,6 +18,8 @@
 -- [volume]: a mesh whose box is a space: the fuel tank's is what a can pours into. You see it in game.
 -- [solid]: a mesh you see in game and bump into. It needs colliders made from it (Make colliders, in its row).
 -- [hull]: a mesh you see in game and bump into: the game wraps its shape in one convex collider by itself.
+-- [state]: a mesh the game shows for one state and hides for the others (the key off, on, starting): hide it in Blender if you like, the game decides.
+-- [hidden]: a mesh the game keeps hidden until something shows it (a lift kit, fitted). The add-on keeps it in a hidden collection, "Hidden in game", so it doesn't clutter the car in Blender either.
 local parts = require "sigma.parts"
 
 local g = parts.chassis {
@@ -62,11 +64,11 @@ parts.mount(g, "hinge_exhaust", "exhaust", { lookup = false })
 -- - suspension rear? [mesh]: Rear suspension. The stock rear suspension's mesh, between the rear wheels
 -- - drive shaft? [mesh]: Drive shaft. Its mesh, from the gearbox to the driven axle
 -- - hinge_suspension? [spot]: Lift kit slot. Where a lift kit clips in: under the car, between the axles
--- - suspension_lifted? [mesh]: Lifted suspension. The suspension as it looks with a lift kit fitted; hidden until one is
--- - suspension rear lifted? [mesh]: Lifted rear suspension. Hidden until a lift kit is fitted
--- - spring? [mesh]: Lifted springs. Hidden until a lift kit is fitted
--- - suspension_front_lifted? [mesh]: Lifted front suspension. Hidden until a lift kit is fitted
--- - undershield? [mesh]: Undershield. Hidden until a lift kit is fitted
+-- - suspension_lifted? [hidden]: Lifted suspension. The suspension as it looks with a lift kit fitted; hidden until one is
+-- - suspension rear lifted? [hidden]: Lifted rear suspension. Hidden until a lift kit is fitted
+-- - spring? [hidden]: Lifted springs. Hidden until a lift kit is fitted
+-- - suspension_front_lifted? [hidden]: Lifted front suspension. Hidden until a lift kit is fitted
+-- - undershield? [hidden]: Undershield. Hidden until a lift kit is fitted
 parts.wheel(g, "Wheel FL", { at = "wheel_hub" })
 parts.wheel(g, "Wheel FR", { at = "wheel_hub.001", rim_rotation = { 0, 180, 0 } })
 parts.wheel(g, "Wheel RL", { at = "wheel_hub.002" })
@@ -88,12 +90,12 @@ parts.fuel_tank(g, { tank = "fuel_tank", filler = "fuel_cap", litres = 20, capac
 -- the game's gauges clip into.
 -- - dashboard [solid]: Dashboard. The dashboard's mesh: seen, solid (make its colliders), and where the game's gauges clip in
 -- - Ignition Collider [collider]: Key click box. An invisible box round the ignition key: clicking inside it turns the key, holding it starts the engine. Without it, the car can't be started
--- - Ignition Off? [mesh]: Key, off. The key as it looks with the ignition off (shown then, hidden otherwise)
--- - Ignition On? [mesh]: Key, on. The key turned to on (shown while the ignition is on)
--- - Ignition and Starter On? [mesh]: Key, starting. The key turned all the way (shown while the starter turns)
+-- - Ignition Off? [state]: Key, off. The key as it looks with the ignition off (shown then, hidden otherwise)
+-- - Ignition On? [state]: Key, on. The key turned to on (shown while the ignition is on)
+-- - Ignition and Starter On? [state]: Key, starting. The key turned all the way (shown while the starter turns)
 -- - Headlight Collider? [collider]: Headlight switch click box. An invisible box round the headlight switch: clicking inside it switches the headlights
--- - Headlights ON? [mesh]: Switch, on. The switch as it looks with the headlights on
--- - Headlights OFF? [mesh]: Switch, off. The switch as it looks with them off
+-- - Headlights ON? [state]: Switch, on. The switch as it looks with the headlights on
+-- - Headlights OFF? [state]: Switch, off. The switch as it looks with them off
 g.playmaker.getDashboard.variables.gameObject.Dashboard = "Dashboard"
 parts.slot(g, "Dashboard", "gauge", { use = "dashboard_attach", at = "dashboard", align = true })
 g.nodes.Dashboard.collider.render = true

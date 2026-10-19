@@ -4,7 +4,7 @@
 # game's textures) behind its buttons.
 import bpy
 
-from . import assets, checks, colliders, export, jobs, kit, mascot, paths, script, ui
+from . import assets, checks, colliders, export, extras, jobs, kit, mascot, paths, script, ui
 from .script import KINDS
 
 
@@ -16,6 +16,7 @@ def clean_id(self, context):
 
 class SigmaSettings(bpy.types.PropertyGroup):
     roles: bpy.props.CollectionProperty(type=kit.SigmaRole)
+    extras: bpy.props.CollectionProperty(type=extras.SigmaExtra)
     sections: bpy.props.CollectionProperty(type=kit.SigmaSectionState)
     open_kit: bpy.props.StringProperty()
     root: bpy.props.PointerProperty(type=bpy.types.Object, name="Root",
@@ -48,8 +49,8 @@ class SigmaPreferences(bpy.types.AddonPreferences):
         l.operator("sigma.install_tools", icon='IMPORT')
 
 
-classes = kit.props + (SigmaSettings, SigmaPreferences) + jobs.classes + assets.classes + colliders.classes + checks.classes \
-    + script.classes + export.classes + kit.classes + mascot.classes + ui.classes
+classes = kit.props + extras.props + (SigmaSettings, SigmaPreferences) + jobs.classes + assets.classes + colliders.classes + checks.classes \
+    + script.classes + export.classes + kit.classes + extras.classes + mascot.classes + ui.classes
 
 
 def register():

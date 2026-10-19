@@ -277,6 +277,22 @@ def kit():
     return _cached("kit", lua, _parse_kit) if lua else None
 
 
+def accepts_of(code, name):
+    """What the slot or mount called name takes ("door", "seat", ...), as the code says: parts.slot(g, "name",
+    "door"), or name = "door" in a table of slots."""
+    q = re.escape(name)
+    m = re.search(r'parts\.(?:slot|mount)\s*\(\s*g\s*,\s*"' + q + r'"\s*,\s*"(\w+)"', code) or \
+        re.search(r'(?:\b|\[")' + q + r'(?:"\])?\s*=\s*"(\w+)"', code)
+    if m:
+        return m.group(1)
+    for _, st in statements(code):   # a slot made in a loop over a list the name is in
+        if '"' + name + '"' in st:
+            m = re.search(r'parts\.(?:slot|mount)\s*\(\s*g\s*,\s*\w+\s*,\s*"(\w+)"', st)
+            if m:
+                return m.group(1)
+    return None
+
+
 def sigma_list(code, name):
     """The names in the list literal of the code that holds name (a role with any number of objects)."""
     m = re.search(r'\{[^{}]*"' + re.escape(name) + r'"[^{}]*\}', code)

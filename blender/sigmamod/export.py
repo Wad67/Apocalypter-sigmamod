@@ -37,6 +37,8 @@ rebuilds it within seconds"""
             script.save_text(script.text_for(paths.asset_lua(s), load=False))
         from . import kit
         kit.sync(context)   # the car's kit sections as the picks now are
+        from . import extras
+        extras.write_blocks(s)   # and its parts' templates
         problems = recheck(context)
         bad = checks.errors(problems)
         if bad:

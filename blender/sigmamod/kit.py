@@ -90,10 +90,12 @@ def collider_objects(s):
 
 
 def made_colliders(o):
-    """(pieces made from it, how many are out of date)"""
+    """(pieces made from it, how many are out of date). Pieces tools/colliders.py wrote into a .glb (named
+    "<it> collider N", under it) count too; they carry no shape to compare, so they count as up to date."""
     from .colliders import shape_key
-    pieces = [c for c in bpy.context.scene.objects if c.get("generated") and c.get("sigma_from") == o.name]
-    return len(pieces), sum(1 for c in pieces if c.get("sigma_shape") != shape_key(o))
+    pieces = [c for c in bpy.context.scene.objects if c.get("generated") and
+              (c.get("sigma_from") == o.name or (not c.get("sigma_from") and c.name.startswith(o.name + " collider ")))]
+    return len(pieces), sum(1 for c in pieces if c.get("sigma_shape") and c.get("sigma_shape") != shape_key(o))
 
 
 def add_item(s, section, role, obj=None, auto=True):
@@ -141,17 +143,16 @@ def norm(name):
     return re.sub(r"[^a-z0-9]", "", n)
 
 
-def sigma_kinds(k):
-    js = __import__(__package__ + ".gamedata", fromlist=["x"]).glb_json(k["glb"]) or {}
-    return {n.get("name"): ('MESH' if "mesh" in n else 'EMPTY') for n in js.get("nodes", [])}
-
-
 def fits(obj, role, k):
-    """Whether an object could be this role: a mesh where the Sigma's is a mesh (unless an empty would do too)."""
+    """Whether an object could be this role, by the role's type: a spot is an empty, a marker an empty or a mesh,
+    everything else a mesh."""
     if obj.get("sigma") == "collider" or obj.type not in ('MESH', 'EMPTY'):
         return False
-    want = sigma_kinds(k).get(role.name, 'EMPTY')
-    return want == 'EMPTY' or obj.type == 'MESH' or "empty" in role.help.lower()
+    if role.kind == 'marker':
+        return True
+    if role.kind == 'spot':
+        return obj.type == 'EMPTY'
+    return obj.type == 'MESH'
 
 
 def fitting_children(obj, role, k):
@@ -160,38 +161,49 @@ def fitting_children(obj, role, k):
 
 
 def detect(context):
-    """Fill the roles nobody has picked for, from the asset's objects: brought from the Sigma for that role, else named
-    as it (capitals, spaces, .001 aside). A role of any number in a group pointed at takes what in it fits. Every role
-    gets an entry, empty when nothing was found, so it shows."""
+    """Pick for every role nobody has picked for, from the asset's objects: the object brought from the Sigma for that
+    role, else one named exactly as it, else one named as it with capitals, spaces and .001 aside. A role of any number
+    in a group pointed at takes what in it fits. Worked out again each time (so a file saved with older picks gets
+    today's), changing only what differs; what the artist picked or left out stays. One object, one role."""
     s = context.scene.sigma
     k = sigmasrc.kit()
     if not k or s.root is None:
         return
     objs = checks.asset_objects(s)
-    names = set(context.scene.objects.keys())
-    _remove_where(s, lambda r: r.auto and (r.obj is None or r.obj.name not in names))   # found before, gone now: look again
-    used = {r.obj for r in s.roles if r.obj is not None}
+    mine = {r.role for r in s.roles if not r.auto and (r.obj is not None or r.none)}
+    _remove_where(s, lambda r: r.auto and r.role in mine)   # the artist's pick wins over an older guess
+    used = {r.obj for r in s.roles if not r.auto and r.obj is not None}
+    want = {}
     for sec in k["sections"]:
-        scope = state(s, sec.title).scope
-        pool = ([scope] + list(scope.children_recursive)) if scope else objs
-        pool = [o for o in pool if o != s.root and o not in used]
+        scope = next((st.scope for st in s.sections if st.title == sec.title), None)
+        pool = [o for o in (([scope] + list(scope.children_recursive)) if scope else objs) if o != s.root]
         for role in sec.roles:
-            have = items(s, role.name)
-            if any(r.obj is not None or r.none for r in have):
+            if role.name in mine:
                 continue
-            known = {norm(n) for n in (sigmasrc.sigma_list(sec.code, role.name) if role.multi else [role.name])}
-            found = [o for o in pool if o.get(TAG_NAME) == role.name] or \
-                    [o for o in pool if norm(o.name) in known and fits(o, role, k)]
+            names = sigmasrc.sigma_list(sec.code, role.name) if role.multi else [role.name]
+            known = {norm(n) for n in names}
+            free = [o for o in pool if o not in used]
+            found = [o for o in free if o.get(TAG_NAME) == role.name] or \
+                    [o for o in free if o.name in names and fits(o, role, k)] or \
+                    [o for o in free if norm(o.name) in known and fits(o, role, k)]
             if role.multi and scope and not found:
                 found = [o for o in scope.children if o not in used and fits(o, role, k)]
             if not role.multi:
                 found = found[:1]
-            _remove_where(s, lambda r, n=role.name: r.role == n)
-            for o in found:
-                add_item(s, sec.title, role.name, o)
-                used.add(o)
-            if not found:
-                add_item(s, sec.title, role.name)
+            used.update(found)
+            want[role.name] = (sec.title, found)
+    for sec in k["sections"]:
+        if not any(st.title == sec.title for st in s.sections):
+            state(s, sec.title)
+    for name, (title, found) in want.items():
+        have = [r.obj for r in s.roles if r.role == name]
+        if [o.name if o else None for o in have] == ([o.name for o in found] or [None]):
+            continue
+        _remove_where(s, lambda r, n=name: r.role == n)
+        for o in found:
+            add_item(s, title, name, o)
+        if not found:
+            add_item(s, title, name)
 
 
 def by_hand(src, sec, p):
@@ -393,7 +405,7 @@ def bring(context, k, roles):
     rhi = Vector([max((ref.matrix_world @ Vector(c))[i] for c in ref.bound_box) for i in range(3)])
     lo, hi = box
     cols = s.root.users_collection or [context.scene.collection]
-    keep, brought = set(), 0
+    keep, brought, hidden = set(), 0, set()
     for sec, role, n in want:
         o = got.get(n)
         if o is None:
@@ -410,6 +422,8 @@ def bring(context, k, roles):
         for x in [o] + list(o.children_recursive):
             keep.add(x)
             x[TAG] = sec.title
+            if role.kind == 'hidden':
+                hidden.add(x)
             if role.kind == 'collider' or (x.type == 'MESH' and (not x.data.materials or all(
                     mt is None or mt.name.startswith("COLLIDER") for mt in x.data.materials))):
                 show_as_collider(x)
@@ -421,13 +435,30 @@ def bring(context, k, roles):
         else:
             add_item(s, sec.title, role.name, o, auto=False)
         brought += 1
+    hide = hidden_collection(context) if hidden else None
     for x in keep:
         for c in list(x.users_collection):
             c.objects.unlink(x)
-        for c in cols:
+        for c in ([hide] if x in hidden else cols):
             c.objects.link(x)
     _drop_rest(tmp, keep)
     return brought
+
+
+HIDDEN = "Hidden in game"
+
+
+def hidden_collection(context):
+    """The collection for what the game keeps hidden (the lifted suspension): hidden in Blender too, but exported."""
+    c = bpy.data.collections.get(HIDDEN)
+    if c is None:
+        c = bpy.data.collections.new(HIDDEN)
+    if c.name not in context.scene.collection.children:
+        context.scene.collection.children.link(c)
+    lc = context.view_layer.layer_collection.children.get(c.name)
+    if lc is not None:
+        lc.hide_viewport = True
+    return c
 
 
 def _ensure_script(s):

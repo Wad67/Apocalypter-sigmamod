@@ -77,6 +77,12 @@ walks through making an asset, one step at a time, each ticked off when it's don
    `volume`, `solid`, `hull`) are explained in the script's own header, and the add-on shows that explanation on every
    object: what to make it from, whether it's seen, clicked or bumped into. A section the script already has without
    its `-- ##` block, written by hand, counts as in the car and is left alone.
+   **Parts that go with the car** (doors, hood, trunk lid, seats, bumpers): a slot's *Make a door for it* starts one
+   from the game's own part of that kind (pick which), set where the slot is, so it opens, latches and saves as the
+   game's do. *Use my mesh for it* swaps your mesh in, keeping what makes it the game's part, and *Replace its
+   colliders* trades the game part's colliders for ones made from your mesh. Each part is a top object of its own in
+   the same `.glb` and a template of its own in the same script (`-- ### Part:` blocks): one file can hold any number
+   of templates, each naming its root with `model`.
 5. **Colliders.** `colliders.py`'s convex pieces from the selected mesh, made as Blender objects, so they are kept in
    the `.blend` and exported with everything else. Made again, they replace the old ones.
 6. **Script.** A starting script for the kind of asset, opened in Blender's text editor; *Add a part* writes
@@ -90,7 +96,10 @@ Above the guide sits Clunky, who looks at what you're doing every couple of seco
 thing at a time, with the button that fixes it: game ids left on objects (your car is about to be a clone of the
 Outrider), objects from two game objects at once, materials inherited from the game (your edits to them don't reach
 it), colliders older than the mesh they were made from, objects outside the asset, a car lying sideways or forty
-metres long, names in the script no object has, missing parts. *Shut up, Clunky* silences one hint; he sulks.
+metres long, names in the script no object has, missing parts; and the scene's own traps: objects hidden in Blender
+(the game shows them: hiding is for you, the export takes everything), the Sigma's objects in the model without
+their section in the script (shown, doing nothing), pieces left from an interrupted import, one object picked for two
+jobs, parts still wearing the game's mesh or colliders. *Shut up, Clunky* silences one hint; he sulks.
 
 *Add a part* lists the parts library as `parts.lua`'s own comments describe it, and writes each the way SigmaMod's
 shipped assets call it, the selected objects' names filled in. Long jobs run in the background (Esc cancels);

@@ -102,3 +102,33 @@ def id_owners():
 
 
 id_owners.cache = None
+
+
+def part_ids():
+    """The game's part ID (what a slot accepts: "door", "hood", ...) -> the exports that are such a part, from each
+    export's FSMs (<name>.fsm.json, its ID FSM)."""
+    d = paths.export_dir()
+    if not d or not os.path.isdir(d):
+        return {}
+    files = sorted(f for f in os.listdir(d) if f.endswith(".fsm.json"))
+    key = tuple((f, os.path.getmtime(os.path.join(d, f))) for f in files)
+    if part_ids.cache and part_ids.cache[0] == key:
+        return part_ids.cache[1]
+    out = {}
+    for f in files:
+        try:
+            with open(os.path.join(d, f), encoding="utf-8") as fh:
+                root = (json.load(fh) or {}).get("root") or {}
+        except (OSError, ValueError):
+            continue
+        v = ((root.get("ID") or {}).get("variables") or {}).get("string", {}).get("ID")
+        name = f[:-len(".fsm.json")]
+        if v and os.path.isfile(os.path.join(d, name + ".glb")):
+            out.setdefault(v, []).append(name)
+    for v in out.values():
+        v.sort(key=str.lower)
+    part_ids.cache = (key, out)
+    return out
+
+
+part_ids.cache = None

@@ -132,6 +132,8 @@ def run(context):
         if kind == 'CAR':
             _kit_checks(s, add)
 
+    _scene_checks(context, s, add)
+
     # what's lying around outside the asset
     loose = [o for o in context.scene.objects if o not in objs and o.parent is None and o != s.root
              and (o.name.startswith("hinge_") or o.get("sigma_kit"))]
@@ -166,13 +168,28 @@ def run(context):
     if lost:
         add(WARNING, f"{_names(lost)} {'is' if len(lost) == 1 else 'are'} in collections you unticked. Unticked means "
                      "not exported. Not exported means not in the game.", key="excluded")
-    others = [o for o in context.scene.objects if o.parent is None and o != s.root and o not in loose
+    from . import extras
+    parts = {e.root for e in s.extras if e.root is not None}
+    others = [o for o in context.scene.objects if o.parent is None and o != s.root and o not in loose and o not in parts
               and (o.type == 'MESH' or o.children)]
     if others:
         add(INFO, f"{_names(others)} {'is' if len(others) == 1 else 'are'} exported too. The game ignores "
                   f"{'it' if len(others) == 1 else 'them'}, but the file gets bigger.", key="others")
-    if kind in ('CAR',) and not any(o.get("sigma") == "collider" for o in objs) and "colliders" not in (script.read_script(s) or ""):
-        add(WARNING, "Your car has no colliders. It will fall through the planet. Majestically. Step 5.", key="nocolliders")
+    def kit_part(o):   # under something the kit brought: the dashboard's colliders aren't the body's
+        x = o.parent
+        while x:
+            if x.get("sigma_kit"):
+                return True
+            x = x.parent
+        return False
+    body_colliders = [o for o in objs if o.get("sigma") == "collider" and not kit_part(o)]
+    if kind in ('CAR',) and not body_colliders and "colliders" not in (script.read_script(s) or ""):
+        bodies = [o for o in objs if o.type == 'MESH' and not o.get("sigma_kit") and o.get("sigma") != "collider" and not kit_part(o)]
+        big = max(bodies, key=lambda o: o.dimensions.length, default=None)
+        add(WARNING, "Your car has no colliders. It will fall through the planet. Majestically. Step 5." +
+                     (f" Its body is '{big.name}', I think." if big else ""),
+            "sigma.make_colliders" if big else None, "Make colliders for the body", {"target": big.name} if big else {},
+            key="nocolliders")
 
     # the materials
     lost_ids = assets.lost_ids(context)
@@ -239,6 +256,124 @@ def run(context):
         add(INFO, "The helper tools aren't installed. Colliders from meshes and the game's real meshes need them. "
                   "Step 1, one button.", "sigma.install_tools", "Install", key="notools")
     return out
+
+
+def _hidden_in_blender(o, view_layer):
+    if o.hide_get() or o.hide_viewport:
+        return True
+    hidden = {lc.collection for lc in _layer_collections(view_layer.layer_collection) if lc.hide_viewport}
+    return bool(o.users_collection) and all(c in hidden for c in o.users_collection)
+
+
+def _game_hides(o):
+    # what the game itself doesn't draw: a renderer switched off, or under something inactive (imports carry both)
+    x = o
+    while x:
+        if x.get("rendererEnabled") is False or x.get("active") is False:
+            return True
+        x = x.parent
+    return False
+
+
+def _scene_checks(context, s, add):
+    from . import extras, kit, sigmasrc
+    k = sigmasrc.kit()
+    objs = asset_objects(s) + extras.objects(s)
+    roles = {}
+    for r in s.roles:
+        if r.obj is not None:
+            roles.setdefault(r.obj, []).append(r)
+    role_kind = lambda o: {getattr(kit.role_of(k, r.role), "kind", None) for r in roles.get(o, [])} if k else set()
+
+    # hidden in Blender is not hidden in the game
+    shown = [o for o in objs if o.type == 'MESH' and _hidden_in_blender(o, context.view_layer)
+             and o.get("sigma") != "collider" and not _game_hides(o) and not (role_kind(o) & {"collider", "hidden", "state"})
+             and not any(c.name in ("Far",) for c in o.users_collection)]
+    if shown:
+        names = "\n".join(o.name for o in shown)
+        add(WARNING, f"{_names(shown)} {'is' if len(shown) == 1 else 'are'} hidden in Blender, but the game will show "
+                     f"{'it' if len(shown) == 1 else 'them'}: hiding (H, the eye) only hides things from you, and the "
+                     "export takes everything. Delete what shouldn't be in the car; something the game should hide "
+                     "until a lift kit goes in the kit's lifted suspension.",
+            "sigma.select_objects", "Show and select them", {"names": names}, key="hiddenshown",
+            also=[("sigma.delete_objects", "Delete them", {"names": names})])
+
+    # bits of the Sigma
+    stray = bpy.data.collections.get("~sigma kit")
+    loose_kit = [o for o in context.scene.objects if o.get(kit.TAG_NAME) and o not in objs]
+    if stray is not None or loose_kit:
+        junk = list(dict.fromkeys(loose_kit + (list(stray.all_objects) if stray else [])))
+        add(WARNING, f"{len(junk)} of the Sigma's objects are lying around outside your car" +
+                     (" (left from bringing the Sigma's parts in, interrupted)" if stray is not None else "") +
+                     ". They'd be exported where they are, probably right inside your car.",
+            "sigma.delete_objects", "Delete them", {"names": "\n".join(o.name for o in junk)}, key="kitstray",
+            also=[("sigma.select_objects", "Show me", {"names": "\n".join(o.name for o in junk)})])
+    if k and s.kind == 'CAR':
+        src = script.read_script(s) or ""
+        p = kit.picks(s, k)
+        by_section = {}
+        for o in objs:
+            if o.get(kit.TAG) and o.parent is not None and o.parent.get(kit.TAG) != o.get(kit.TAG):
+                by_section.setdefault(o[kit.TAG], []).append(o)
+        for sec in k["sections"]:
+            mine = by_section.get(sec.title, [])
+            if mine and not kit.status(s, sec, p, src)[1]:
+                add(WARNING, f"The Sigma's {sec.title.lower()} objects ({_names(mine, 2)}) are in your model, but the "
+                             f"{sec.title.lower()} isn't in your car's script. They'd be exported as plain meshes: shown, "
+                             "doing nothing (a lifted suspension, always there).",
+                    "sigma.add_kit", f"Put the {sec.title.lower()} in the car", {"sections": sec.title},
+                    key="kitnotin:" + sec.title,
+                    also=[("sigma.delete_objects", "Delete them", {"names": "\n".join(o.name for x in mine for o in [x] + list(x.children_recursive))})])
+        if s.root is not None:
+            at_origin = [o for x in by_section.values() for o in x
+                         if (o.matrix_world.translation - s.root.matrix_world.translation).length < 1e-4]
+            if at_origin:
+                add(INFO, f"{_names(at_origin)} {'sits' if len(at_origin) == 1 else 'sit'} exactly at your car's "
+                          "origin, its middle. The Sigma's isn't there: was it moved there by mistake (Alt+G clears "
+                          "a location)?", "sigma.select_objects", "Select", {"names": "\n".join(o.name for o in at_origin)},
+                    key="kitorigin")
+        twice = [(o, rs) for o, rs in roles.items() if len({r.role for r in rs}) > 1]
+        if twice:
+            o, rs = twice[0]
+            labels = [kit.role_of(k, r.role).label for r in rs if kit.role_of(k, r.role)]
+            add(WARNING, f"'{o.name}' is picked as {' AND '.join(labels)}. One object, one job.",
+                "sigma.open_build", "Show me", {"section": rs[0].section}, key="twice:" + o.name)
+        found_hidden = [(o, r) for o, rs in roles.items() for r in rs
+                        if getattr(kit.role_of(k, r.role), "kind", None) == 'hidden' and r.auto and not o.get(kit.TAG_NAME)]
+        if found_hidden:
+            o, r = found_hidden[0]
+            add(INFO, f"{_names([o for o, _ in found_hidden])} {'was' if len(found_hidden) == 1 else 'were'} found by "
+                      "name for the lifted suspension, so the game keeps "
+                      f"{'it' if len(found_hidden) == 1 else 'them'} hidden until a lift kit is fitted. Right? If one is "
+                      "meant to be seen all the time, leave it out of the lifted suspension.",
+                "sigma.open_build", "Show me", {"section": r.section}, key="hiddenauto")
+
+    # the parts that go with it
+    ids = {s.asset_id}
+    for i, e in enumerate(s.extras):
+        if e.root is None or e.root.name not in context.scene.objects:
+            add(WARNING, f"The part '{e.asset_id}' has lost its object. Pick it again, or take the part out.",
+                "sigma.remove_extra", "Take it out", {"index": i}, key="extragone:" + e.asset_id)
+            continue
+        if e.asset_id in ids or not ID_RE.match(e.asset_id or "-"):
+            add(ERROR, f"The part '{e.root.name}' needs an id of its own (lowercase, digits, _), not '{e.asset_id}'.",
+                key="extraid:" + e.root.name)
+        ids.add(e.asset_id)
+        if e.root.parent is not None:
+            add(ERROR, f"The part '{e.root.name}' is under '{e.root.parent.name}'. A part is a thing of its own: it "
+                       "must be a top object (Alt+P > Clear and Keep Transformation).", key="extraparent:" + e.root.name)
+        under = [e.root] + list(e.root.children_recursive)
+        donors = {gamedata.id_owners().get(str(o.get(k_))) for o in under for k_ in GAME_IDS if o.get(k_)} - {None}
+        if len(donors) > 1:
+            add(ERROR, f"The part '{e.root.name}' mixes {' AND '.join(sorted(donors))}. One game part per part.",
+                key="extramix:" + e.root.name)
+        if e.root.get("sigma_mesh_swapped") and any(o.get("sigma") == "collider" and not o.get("generated") for o in under):
+            add(WARNING, f"'{e.root.name}' has your mesh but still the game {e.accepts}'s colliders, the old shape. "
+                         "You'd bump into a ghost of the game's part.",
+                "sigma.replace_part_colliders", "Replace its colliders", {"root": e.root.name}, key="extracol:" + e.root.name)
+        elif not e.root.get("sigma_mesh_swapped"):
+            add(INFO, f"'{e.root.name}' still looks like the game's {e.donor}. Select your {e.accepts} mesh, then its "
+                      "mesh (last), and Use my mesh for it.", key="extraswap:" + e.root.name)
 
 
 def _kit_checks(s, add):

@@ -7,7 +7,7 @@ import sys
 import blf
 import bpy
 
-from . import assets, checks, export, gamedata, jobs, kit, mascot, paths, script, sigmasrc
+from . import assets, checks, export, extras, gamedata, jobs, kit, mascot, paths, script, sigmasrc
 
 
 def _scale(context):
@@ -185,6 +185,16 @@ def draw_role(b, c, sec, role, p, k):
                 crow.label(text="Colliders: " + ("out of date" if made else "none yet"), icon='ERROR')
                 crow.operator("sigma.make_colliders", text="Make them again" if made else "Make its colliders",
                               icon='MOD_MESHDEFORM').target = it.obj.name
+    accepts = sigmasrc.accepts_of(sec.code, role.name) if role.kind == 'spot' else None
+    if got and accepts and not role.multi:
+        e = extras.for_slot(s, role.name)
+        prow = b.row(align=True)
+        if e is not None and e.root is not None:
+            prow.label(text=f"Its {accepts}: {e.root.name}", icon='CHECKMARK')
+            prow.operator("sigma.select_objects", text="", icon='RESTRICT_SELECT_OFF').names = e.root.name
+        elif gamedata.part_ids().get(accepts):
+            op = prow.operator("sigma.make_slot_part", text=f"Make a {accepts} for it", icon='ADD')
+            op.slot, op.accepts = role.name, accepts
     row = b.row(align=True)
     if not got:
         row.operator("sigma.bring_role", text="The Sigma's", icon='IMPORT').role = role.name
@@ -263,9 +273,35 @@ def draw_car_kit(l, c):
             op.section = sec.title
             if opened:
                 draw_section(b, c, sec, p, ins, k)
+    draw_parts(l, c)
     wrap(l, c, "The Sigma's objects land where the Sigma has them, stretched to your body. Move each where it belongs: "
                "wheel hubs at the wheel centres, the seat where a bum goes, the engine mount in the engine bay. Move "
                "and turn them; never scale the hinges.", icon='INFO')
+
+
+def draw_parts(l, c):
+    s = c.scene.sigma
+    box = l.box()
+    box.label(text="Parts that go with your car", icon='MOD_BUILD')
+    wrap(box, c, "Doors, a hood, a trunk lid, seats: parts of their own that fit your car's slots, in the same file and "
+                 "script. Each starts as the game's own part of that kind, so it works like one (a door opens, a seat "
+                 "is sat in), and takes your mesh. To make one: open Seats, doors and body panels above, and press "
+                 "Make a ... for it on a slot.", boxes=2)
+    if not s.extras:
+        return
+    for i, e in enumerate(s.extras):
+        b = box.box()
+        row = b.row(align=True)
+        row.label(text=f"{e.accepts.capitalize()}, from the game's {e.donor}", icon='OBJECT_DATA')
+        if e.root is not None:
+            row.operator("sigma.select_objects", text="", icon='RESTRICT_SELECT_OFF').names = e.root.name
+        row.operator("sigma.remove_extra", text="", icon='TRASH').index = i
+        b.prop(e, "root", text="Object")
+        b.prop(e, "asset_id", text="Id")
+        b.prop(e, "display_name", text="Name in game")
+        if e.root is not None and not e.root.get(extras.SWAPPED):
+            wrap(b, c, "Now your mesh: select it, then the game part's mesh (last, so it's the active one), and:", boxes=3)
+            b.operator("sigma.use_my_mesh", icon='MOD_DATA_TRANSFER')
 
 
 def draw_build(l, c):
@@ -488,7 +524,8 @@ class SIGMA_PT_tools(bpy.types.Panel):
         for op, icon in (("sigma.import_game_object", 'IMPORT'), ("sigma.game_material", 'MATERIAL'),
                          ("sigma.restore_material_ids", 'MATERIAL_DATA'), ("sigma.make_colliders", 'MOD_MESHDEFORM'),
                          ("sigma.remove_colliders", 'TRASH'), ("sigma.toggle_colliders", 'HIDE_OFF'),
-                         ("sigma.open_script", 'TEXT'), ("sigma.add_part", 'ADD'), ("sigma.recheck", 'VIEWZOOM'),
+                         ("sigma.open_script", 'TEXT'), ("sigma.add_part", 'ADD'), ("sigma.use_my_mesh", 'MOD_DATA_TRANSFER'),
+                         ("sigma.recheck", 'VIEWZOOM'),
                          ("sigma.export", 'EXPORT'), ("sigma.game_log", 'CONSOLE'), ("sigma.open_asset_folder", 'FILEBROWSER')):
             col.operator(op, icon=icon)
 

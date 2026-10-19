@@ -1,0 +1,320 @@
+# Parts that go with the car, in the same .glb and the same script: a door, a hood, a seat for the car's slots. Each
+# starts as the game's own part of that kind (so its logic is the game's: a door opens, a seat is sat in), set where the
+# car's slot for it is, and takes the artist's mesh in place of the game's. Each is a template of its own: a top object
+# of its own in the .glb, a "-- ### Part:" block in the script.
+import os
+import re
+
+import bpy
+from mathutils import Matrix
+
+from . import assets, checks, gamedata, jobs, paths, script, sigmasrc
+
+BLOCK = "-- ### Part: "
+NOTE = "-- (written by the SigmaMod add-on for a part made in Blender: change it there, not here)"
+SWAPPED = "sigma_mesh_swapped"
+
+
+def _poke():
+    from . import mascot
+    mascot.poke()
+
+
+def _clean(self, context):
+    cleaned = assets.clean_id(self.asset_id) if self.asset_id else ""
+    if cleaned != self.asset_id:
+        self.asset_id = cleaned
+    _poke()
+
+
+class SigmaExtra(bpy.types.PropertyGroup):
+    root: bpy.props.PointerProperty(type=bpy.types.Object, name="Part",
+                                    description="The part's top object: it, and everything under it, is the part")
+    asset_id: bpy.props.StringProperty(name="Id", update=_clean,
+                                       description="What the game knows the part by: lowercase, digits and _")
+    display_name: bpy.props.StringProperty(name="Name", description="What players see")
+    slot: bpy.props.StringProperty(description="The car's slot it's for (its name in the Sigma's kit)")
+    accepts: bpy.props.StringProperty(description="What kind of part it is (door, hood, seat...)")
+    donor: bpy.props.StringProperty(description="The game part it started as")
+
+
+def for_slot(s, slot):
+    return next((e for e in s.extras if e.slot == slot), None)
+
+
+def objects(s):
+    out = []
+    for e in s.extras:
+        if e.root is not None:
+            out += [e.root] + list(e.root.children_recursive)
+    return out
+
+
+# ---- the script's part blocks
+
+def block(e):
+    return "\n".join([BLOCK + e.asset_id, NOTE,
+                      f'template "{e.asset_id}" {{ model = "{e.root.name}", name = "{e.display_name or e.asset_id}" }}', ""])
+
+
+def _spans(lines):
+    """part id -> (first line, line after the block)"""
+    out = {}
+    for i, l in enumerate(lines):
+        if l.startswith(BLOCK):
+            j = i + 1
+            while j < len(lines) and lines[j].strip():
+                j += 1
+            out[l[len(BLOCK):].strip()] = (i, j + 1 if j < len(lines) else j)
+    return out
+
+
+def write_blocks(s):
+    """Every part's block in the script as it is now, and the blocks of parts no longer here gone."""
+    path = paths.asset_lua(s)
+    if not path or not os.path.isfile(path):
+        return
+    t = script.text_for(path, load=False)
+    if t is not None and t.is_dirty:
+        script.save_text(t)
+    src = open(path, encoding="utf-8").read()
+    lines = src.rstrip("\n").split("\n") + [""]
+    want = {e.asset_id: block(e) for e in s.extras if e.root is not None and e.asset_id}
+    for pid, (a, b) in sorted(_spans(lines).items(), key=lambda kv: -kv[1][0]):
+        if pid not in want:
+            del lines[a:b]
+    spans = _spans(lines)
+    for pid, text in want.items():
+        new = text.split("\n")
+        if pid in spans:
+            a, b = spans[pid]
+            lines[a:b] = new
+        else:
+            while lines and not lines[-1].strip():
+                lines.pop()
+            lines += [""] + new
+        spans = _spans(lines)
+    out = "\n".join(lines).rstrip("\n") + "\n"
+    if out != src:
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(out)
+        script.reload_text(path)
+
+
+# ---- making one
+
+def donor_items(self, context):
+    names = gamedata.part_ids().get(self.accepts, [])
+    side = (self.slot.rsplit("_", 1)[-1] if "_" in self.slot else "").upper()
+    if side in ("L", "R"):   # the same side's first
+        names = sorted(names, key=lambda n: not n.upper().endswith(("_" + side, side)))
+    donor_items.cache = [(n, n, f"Start from the game's {n}") for n in names] or [("", f"(no {self.accepts} in the game's exports)", "")]
+    return donor_items.cache
+
+
+class SIGMA_OT_make_slot_part(jobs.JobMixin, bpy.types.Operator):
+    """Make a part for this slot: start from one of the game's parts of that kind (pick which), put where the slot is.
+Then swap your mesh in with "Use my mesh for it". It's a part of its own, in the same file and script as the car"""
+    bl_idname = "sigma.make_slot_part"
+    bl_label = "Make a part for it"
+    bl_property = "donor"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    slot: bpy.props.StringProperty()
+    accepts: bpy.props.StringProperty()
+    donor: bpy.props.EnumProperty(name="Start from", items=donor_items)
+
+    @classmethod
+    def poll(cls, context):
+        return not jobs.busy() and context.scene.sigma.root is not None
+
+    def invoke(self, context, event):
+        if not gamedata.part_ids().get(self.accepts):
+            self.report({'ERROR'}, f"No {self.accepts} in the game's exports. In game: Export All first (step 2 says how)")
+            return {'CANCELLED'}
+        context.window_manager.invoke_search_popup(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        s = context.scene.sigma
+        if not s.asset_id:
+            self.report({'ERROR'}, "Give the car an id first (step 3): the part's id is made from it")
+            return {'CANCELLED'}
+        path = os.path.join(paths.export_dir(), self.donor + ".glb")
+        if not self.donor or not os.path.isfile(path):
+            return {'CANCELLED'}
+        if gamedata.needs_fill(path) and jobs.tools_ready():
+            argv = [jobs.venv_python(), os.path.join(paths.tools_dir(), "fill_meshes.py"), paths.data_file(), path]
+            return self.start_job(context, "Getting the game's meshes", [("reading the game's files", argv)],
+                                  lambda ok, out: ok and self.load(bpy.context, path))
+        self.load(context, path)
+        return {'FINISHED'}
+
+    def load(self, context, path):
+        from . import kit
+        s = context.scene.sigma
+        k = sigmasrc.kit()
+        hinge = next((r.obj for r in s.roles if r.role == self.slot and r.obj is not None), None)
+        before = set(context.scene.objects)
+        bpy.ops.import_scene.gltf(filepath=path)
+        new = [o for o in context.scene.objects if o not in before]
+        assets.organize(context.scene)
+        roots = [o for o in new if o.parent is None]
+        if not roots:
+            raise RuntimeError("The game part came in empty")
+        root = roots[0]
+        if hinge is not None:   # where it sits when fitted: on the slot, turned as it is
+            loc, rot, _ = hinge.matrix_world.decompose()
+            root.matrix_world = Matrix.LocRotScale(loc, rot, None)
+        role = kit.role_of(k, self.slot) if k else None
+        label = (role.label if role else self.accepts).replace(" slot", "")
+        e = s.extras.add()
+        e.slot, e.accepts, e.donor = self.slot, self.accepts, self.donor
+        base = s.asset_id + "_" + assets.clean_id(self.slot.replace("hinge_", ""))
+        pid, n = base, 2
+        while any(x.asset_id == pid for x in s.extras) or pid == s.asset_id:
+            pid, n = f"{base}_{n}", n + 1
+        e.asset_id = pid
+        e.display_name = f"{s.display_name or s.asset_id} {label[:1].lower() + label[1:]}"
+        e.root = root
+        root.name = e.display_name
+        kit._ensure_script(s)
+        write_blocks(s)
+        for o in context.selected_objects:
+            o.select_set(False)
+        root.select_set(True)
+        context.view_layer.objects.active = root
+        _poke()
+        self.report({'INFO'}, f"Made '{root.name}' from the game's {self.donor}, at the slot. Now your mesh: select it, "
+                              "then the game part's mesh (last), and Use my mesh for it")
+        return True
+
+
+class SIGMA_OT_use_my_mesh(bpy.types.Operator):
+    """Put your mesh in place of the game's: select your mesh first, then the game part's mesh last (the active one).
+The game's object keeps everything that makes it the game's part; it just looks like yours, where yours is"""
+    bl_idname = "sigma.use_my_mesh"
+    bl_label = "Use my mesh for it"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        a = context.active_object
+        others = [o for o in context.selected_objects if o != a]
+        return a is not None and a.type == 'MESH' and len(others) == 1 and others[0].type == 'MESH'
+
+    def execute(self, context):
+        target = context.active_object
+        mine = next(o for o in context.selected_objects if o != target)
+        m = target.matrix_world.inverted() @ mine.matrix_world
+        me = mine.data.copy()
+        me.transform(m)
+        if m.determinant() < 0:   # mirrored on the way: faces would point inwards
+            me.flip_normals()
+        old = target.data
+        target.data = me
+        if old.users == 0:
+            bpy.data.meshes.remove(old)
+        top = target
+        while top.parent:
+            top = top.parent
+        target[SWAPPED] = True
+        top[SWAPPED] = True
+        mesh_of_mine = mine.data
+        bpy.data.objects.remove(mine)
+        if mesh_of_mine.users == 0:
+            bpy.data.meshes.remove(mesh_of_mine)
+        _poke()
+        self.report({'INFO'}, f"'{target.name}' looks like yours now. Its colliders are still the game part's shape: "
+                              "Clunky will offer to replace them")
+        return {'FINISHED'}
+
+
+class SIGMA_OT_replace_part_colliders(bpy.types.Operator):
+    """Delete the game part's colliders (the game's shape, not yours) and make new ones from your mesh"""
+    bl_idname = "sigma.replace_part_colliders"
+    bl_label = "Replace its colliders"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    root: bpy.props.StringProperty()
+
+    def execute(self, context):
+        top = bpy.data.objects.get(self.root)
+        if top is None:
+            return {'CANCELLED'}
+        under = [top] + list(top.children_recursive)
+        gone = [o for o in under if o.get("sigma") == "collider" and not o.get("generated")]
+        for o in gone:
+            bpy.data.objects.remove(o)
+        swapped = next((o for o in [top] + list(top.children_recursive) if o.get(SWAPPED) and o.type == 'MESH'), None)
+        _poke()
+        if swapped is None:
+            self.report({'INFO'}, f"{len(gone)} of the game's colliders deleted. Now make colliders from your mesh")
+            return {'FINISHED'}
+        return bpy.ops.sigma.make_colliders('INVOKE_DEFAULT', target=swapped.name)
+
+
+class SIGMA_OT_remove_extra(bpy.types.Operator):
+    """Take this part out of the script (its objects stay in Blender, as plain objects)"""
+    bl_idname = "sigma.remove_extra"
+    bl_label = "Take out"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    index: bpy.props.IntProperty()
+
+    def execute(self, context):
+        s = context.scene.sigma
+        if 0 <= self.index < len(s.extras):
+            s.extras.remove(self.index)
+            write_blocks(s)
+        _poke()
+        return {'FINISHED'}
+
+
+class SIGMA_OT_select_objects(bpy.types.Operator):
+    """Select these (and show them, if they were hidden)"""
+    bl_idname = "sigma.select_objects"
+    bl_label = "Select them"
+
+    names: bpy.props.StringProperty()
+
+    def execute(self, context):
+        objs = [bpy.data.objects[n] for n in self.names.split("\n") if n in bpy.data.objects]
+        objs = [o for o in objs if o.name in context.view_layer.objects]
+        for o in context.selected_objects:
+            o.select_set(False)
+        for o in objs:
+            o.hide_set(False)
+            o.hide_viewport = False
+            o.select_set(True)
+        if objs:
+            context.view_layer.objects.active = objs[0]
+        return {'FINISHED'}
+
+
+class SIGMA_OT_delete_objects(bpy.types.Operator):
+    """Delete these objects (Ctrl+Z brings them back)"""
+    bl_idname = "sigma.delete_objects"
+    bl_label = "Delete them"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    names: bpy.props.StringProperty()
+
+    def execute(self, context):
+        n = 0
+        for name in self.names.split("\n"):
+            o = bpy.data.objects.get(name)
+            if o is not None:
+                bpy.data.objects.remove(o)
+                n += 1
+        c = bpy.data.collections.get("~sigma kit")
+        if c is not None and not c.all_objects:
+            bpy.data.collections.remove(c)
+        _poke()
+        self.report({'INFO'}, f"{n} deleted")
+        return {'FINISHED'}
+
+
+classes = (SIGMA_OT_make_slot_part, SIGMA_OT_use_my_mesh, SIGMA_OT_replace_part_colliders, SIGMA_OT_remove_extra,
+           SIGMA_OT_select_objects, SIGMA_OT_delete_objects)
+props = (SigmaExtra,)
