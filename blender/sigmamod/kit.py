@@ -184,6 +184,11 @@ def migrate(s, k):
             if role.multi:
                 for n in sigmasrc.sigma_list(sec.code, role.name):
                     owner.setdefault(n, (sec, role))
+    for e in s.extras:   # a part from before parts were kept by their slot object: its slot, by name or by role
+        if e.hinge is None and e.slot:
+            e.hinge = bpy.context.scene.objects.get(e.slot) or next(
+                (r.obj for r in s.roles if r.role == e.slot and r.obj is not None), None) or next(
+                (r.obj for r in s.roles if r.obj is not None and norm(r.obj.name) == norm(e.slot)), None)
     for i in range(len(s.roles) - 1, -1, -1):
         r = s.roles[i]
         if r.role in k["roles"]:

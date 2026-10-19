@@ -34,8 +34,9 @@ class SigmaSettings(bpy.types.PropertyGroup):
     show_live: bpy.props.BoolProperty(name="Live exports", description="Also list the live exports (the car nearest you, parts fitted)")
     last_export: bpy.props.StringProperty()
     open_step: bpy.props.IntProperty(default=-1)
-    open_tuning: bpy.props.BoolProperty(name="Tuning", description="Show or hide the car's tuning: mass, springs, "
-                                        "steering, brakes, gears, differential")
+    open_tuning: bpy.props.BoolProperty(name="Tuning", update=tuning.opened,
+                                        description="Show or hide the car's tuning: mass, springs, steering, brakes, "
+                                                    "gears, differential")
     open_preview: bpy.props.BoolProperty(name="Preview", description="Show or hide the preview: the game's parts on "
                                          "your slots, its wheels on your hubs, doors opened")
     tuning: bpy.props.PointerProperty(type=tuning.SigmaTuning)

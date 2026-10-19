@@ -119,7 +119,8 @@ def hubs(context, src):
         sec = next((x for x in (k or {}).get("sections", []) if any(r.name.startswith("wheel_hub") for r in x.roles)), None)
         if sec is not None:
             src = sigmasrc.section_code(sec, kit.picks(s, k), k["roles"])
-    return [(w, bpy.data.objects.get(at), rot) for w, at, rot in tuning.wheels_in(src) if bpy.data.objects.get(at)]
+    out = [(w, tuning.hub_of(w, at), rot) for w, at, rot, _ in tuning.wheels_in(src)]
+    return [(w, hub, rot) for w, hub, rot in out if hub is not None]
 
 
 # ---- the game's parts, read once each into a hidden library and shown as copies
@@ -440,6 +441,8 @@ class SIGMA_OT_straighten(bpy.types.Operator):
     names: bpy.props.StringProperty(options={'HIDDEN'})
 
     def execute(self, context):
+        from . import extras
+        s = context.scene.sigma
         context.view_layer.update()
         for n in self.names.split("\n"):
             o = bpy.data.objects.get(n)
@@ -448,8 +451,35 @@ class SIGMA_OT_straighten(bpy.types.Operator):
             parent = o.parent.matrix_world if o.parent else Matrix()
             loc, _, sc = (parent.inverted() @ o.matrix_world).decompose()
             o.matrix_world = parent @ Matrix.LocRotScale(loc, Quaternion(), sc)
+            context.view_layer.update()
+            for e in s.extras:   # a part made at the slot sits on it as fitted: it turns with it, its look stays put
+                if e.root is not None and (e.hinge == o or (e.hinge is None and e.slot == o.name)):
+                    refit(context, e.root, o)
         update(context)
         return {'FINISHED'}
+
+
+def refit(context, root, slot):
+    """The part's top object onto the slot (where the game fits it), everything of it staying where it is in the
+    world: its own mesh, if it has one, moved inside it the other way."""
+    old = root.matrix_world.copy()
+    loc, rot, _ = slot.matrix_world.decompose()
+    new = Matrix.LocRotScale(loc, rot, old.to_scale())
+    kids = [(c, c.matrix_world.copy()) for c in root.children]
+    if root.type == 'MESH' and root.data is not None:
+        from .colliders import shape_key
+        was = shape_key(root)
+        if root.data.users > 1:
+            root.data = root.data.copy()
+        root.data.transform(new.inverted() @ old)
+        now = shape_key(root)
+        for c in bpy.data.objects:   # the same shape, only held differently: its colliders stay up to date
+            if c.get("sigma_from") == root.name and c.get("sigma_shape") == was:
+                c["sigma_shape"] = now
+    root.matrix_world = new
+    context.view_layer.update()
+    for c, w in kids:
+        c.matrix_world = w
 
 
 def turned_slots(context):

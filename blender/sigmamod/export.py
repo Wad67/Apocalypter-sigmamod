@@ -36,7 +36,8 @@ rebuilds it within seconds"""
         if script.unsaved(s):
             script.save_text(script.text_for(paths.asset_lua(s), load=False))
         from . import kit, preview
-        preview.clear(context, library=False)   # the whole scene is exported: the preview mustn't be in it
+        preview.clear(context)   # the whole scene is exported: the preview (and the game parts it read) mustn't be in it
+        s["preview_parts"] = s["preview_wheels"] = False
         kit.sync(context)   # the car's kit sections as the picks now are (and its tuning)
         from . import extras
         extras.write_blocks(s)   # and its parts' templates
