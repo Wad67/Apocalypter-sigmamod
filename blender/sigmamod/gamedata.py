@@ -4,6 +4,7 @@ import json
 import os
 import re
 import struct
+import time
 
 from . import paths
 
@@ -86,10 +87,10 @@ def root_extras(path):
 def id_owners():
     """es3local / es3prefab id -> the export it came from (its name), over every export. Read once, kept while the
     files don't change."""
-    files = exports(include_live=False)
-    key = tuple((n, os.path.getmtime(p)) for n, p in files)
+    key = folder_key(paths.export_dir())
     if id_owners.cache and id_owners.cache[0] == key:
         return id_owners.cache[1]
+    files = exports(include_live=False)
     out = {}
     for name, path in files:
         for n in (glb_json(path) or {}).get("nodes", []):
@@ -104,16 +105,25 @@ def id_owners():
 id_owners.cache = None
 
 
+def folder_key(d):
+    """A cheap key for what's in a folder: its own time (files added, removed, replaced) and the half minute, so a
+    file written over in place is read again within 30 s. Not a stat of every file on every redraw."""
+    try:
+        return (d, os.path.getmtime(d), int(time.time() // 30))
+    except OSError:
+        return None
+
+
 def part_ids():
     """The game's part ID (what a slot accepts: "door", "hood", ...) -> the exports that are such a part, from each
     export's FSMs (<name>.fsm.json, its ID FSM)."""
     d = paths.export_dir()
     if not d or not os.path.isdir(d):
         return {}
-    files = sorted(f for f in os.listdir(d) if f.endswith(".fsm.json"))
-    key = tuple((f, os.path.getmtime(os.path.join(d, f))) for f in files)
+    key = folder_key(d)
     if part_ids.cache and part_ids.cache[0] == key:
         return part_ids.cache[1]
+    files = sorted(f for f in os.listdir(d) if f.endswith(".fsm.json"))
     out = {}
     for f in files:
         try:

@@ -258,10 +258,10 @@ def run(context):
     return out
 
 
-def _hidden_in_blender(o, view_layer):
+def _hidden_in_blender(o, hidden):
+    # hidden: the collections hidden in the view layer. The object must be in the view layer (hide_get needs it)
     if o.hide_get() or o.hide_viewport:
         return True
-    hidden = {lc.collection for lc in _layer_collections(view_layer.layer_collection) if lc.hide_viewport}
     return bool(o.users_collection) and all(c in hidden for c in o.users_collection)
 
 
@@ -285,8 +285,10 @@ def _scene_checks(context, s, add):
             roles.setdefault(r.obj, []).append(r)
     role_kind = lambda o: {getattr(kit.role_of(k, r.role), "kind", None) for r in roles.get(o, [])} if k else set()
 
-    # hidden in Blender is not hidden in the game
-    shown = [o for o in objs if o.type == 'MESH' and _hidden_in_blender(o, context.view_layer)
+    # hidden in Blender is not hidden in the game (what's in an unticked collection has a warning of its own)
+    in_layer = set(context.view_layer.objects)
+    hidden = {lc.collection for lc in _layer_collections(context.view_layer.layer_collection) if lc.hide_viewport}
+    shown = [o for o in objs if o.type == 'MESH' and o in in_layer and _hidden_in_blender(o, hidden)
              and o.get("sigma") != "collider" and not _game_hides(o) and not (role_kind(o) & {"collider", "hidden", "state"})
              and not any(c.name in ("Far",) for c in o.users_collection)]
     if shown:
@@ -367,11 +369,15 @@ def _scene_checks(context, s, add):
         if len(donors) > 1:
             add(ERROR, f"The part '{e.root.name}' mixes {' AND '.join(sorted(donors))}. One game part per part.",
                 key="extramix:" + e.root.name)
-        if e.root.get("sigma_mesh_swapped") and any(o.get("sigma") == "collider" and not o.get("generated") for o in under):
+        swapped = e.root.get(extras.PART_SWAPPED)
+        if swapped and any(o.get("sigma") == "collider" and not o.get("generated") for o in under):
             add(WARNING, f"'{e.root.name}' has your mesh but still the game {e.accepts}'s colliders, the old shape. "
                          "You'd bump into a ghost of the game's part.",
                 "sigma.replace_part_colliders", "Replace its colliders", {"root": e.root.name}, key="extracol:" + e.root.name)
-        elif not e.root.get("sigma_mesh_swapped"):
+        elif swapped and not any(o.get("sigma") == "collider" for o in under):
+            add(WARNING, f"'{e.root.name}' has no colliders at all. It would fall through the car, and the world.",
+                "sigma.replace_part_colliders", "Make its colliders", {"root": e.root.name}, key="extranocol:" + e.root.name)
+        elif not swapped:
             add(INFO, f"'{e.root.name}' still looks like the game's {e.donor}. Select your {e.accepts} mesh, then its "
                       "mesh (last), and Use my mesh for it.", key="extraswap:" + e.root.name)
 

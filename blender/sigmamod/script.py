@@ -23,8 +23,8 @@ local parts = require "sigma.parts"
 
 BODIES = {
     'CAR': '''local g = parts.chassis {{ mass = 1000, drive = "rear", speed = true, flip_over = true }}   -- kg; "front", "rear" or "all"
-g.model = "{root}"
-g.name = "{name}"
+g.model = {q_root}
+g.name = {q_name}
 
 -- Parts go here. The SigmaMod panel's Build step adds the Sigma's (wheels, seat, engine bay...) as sections;
 -- Script > Add a part adds one part for the selected objects.
@@ -32,8 +32,8 @@ g.name = "{name}"
 template "{id}" (g)
 ''',
     'CHANGED_CAR': '''local g = {{
-  model = "{root}",
-  name = "{name}",
+  model = {q_root},
+  name = {q_name},
   type = "chassis",                -- drives on its own setup, made from its wheels
   Rigidbody = {{ mass = 1000 }},     -- kg
   drive = "rear",                  -- "front", "rear" or "all"
@@ -44,7 +44,7 @@ template "{id}" (g)
 
 template "{id}" (g)
 ''',
-    'ATTACHABLE': '''local g = {{ model = "{root}", name = "{name}" }}
+    'ATTACHABLE': '''local g = {{ model = {q_root}, name = {q_name} }}
 parts.attachable(g, {{
   mass = 10,                       -- kg
   colliders = {{ {colliders} }},   -- objects whose meshes are what it collides with
@@ -52,13 +52,13 @@ parts.attachable(g, {{
 
 template "{id}" (g)
 ''',
-    'CHANGED': '''local g = {{ model = "{root}", name = "{name}", nodes = {{}}, playmaker = {{}} }}
+    'CHANGED': '''local g = {{ model = {q_root}, name = {q_name}, nodes = {{}}, playmaker = {{}} }}
 
 -- Parts go here. In Blender: select objects, then SigmaMod panel > Script > Add a part.
 
 template "{id}" (g)
 ''',
-    'VARIANT': '''local g = {{ model = "{root}", name = "{name}" }}
+    'VARIANT': '''local g = {{ model = {q_root}, name = {q_name} }}
 
 template "{id}" (g)
 ''',
@@ -67,8 +67,9 @@ template "{id}" (g)
 
 def starting_script(kind, asset_id, name, root):
     meshes = [o.name for o in [root] + list(root.children_recursive) if o.type == 'MESH' and o.get("sigma") != "collider"]
-    colliders = ", ".join(f'"{n}"' for n in meshes[:8]) or f'"{root.name}"'
-    return HEAD.format(id=asset_id, name=name) + BODIES[kind].format(id=asset_id, name=name, root=root.name, colliders=colliders)
+    colliders = ", ".join(_q(n) for n in meshes[:8]) or _q(root.name)
+    return HEAD.format(id=asset_id, name=name) + BODIES[kind].format(id=asset_id, name=name, root=root.name, colliders=colliders,
+                                                                   q_root=_q(root.name), q_name=_q(name))
 
 
 # ---- the text in Blender
@@ -218,7 +219,8 @@ def template_ids(src):
 # shipped scripts make, its object names swapped for the selected objects
 
 def _q(s):
-    return '"' + s.replace('"', '\\"') + '"'
+    # a Lua string: backslashes and quotes escaped, so any name is safe in a script
+    return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
 
 
 SKIP = {"chassis", "item", "numbered", "add", "pose"}   # the script's start, whole templates, and helpers
@@ -249,10 +251,23 @@ def part_code(name, sel, act):
     return code
 
 
-def insert(src, code):
+def car_template_at(lines, asset_id):
+    """The line the car's own template is made on: new code goes before it. Not a part's (they come after it, in
+    "-- ### Part:" blocks)."""
+    if asset_id:
+        for i, l in enumerate(lines):
+            if re.match(r'\s*template\s*"' + re.escape(asset_id) + '"', l):
+                return i
+    first_part = next((i for i, l in enumerate(lines) if l.startswith("-- ### Part: ")), len(lines))
+    tmpl = [i for i, l in enumerate(lines[:first_part]) if re.match(r'\s*template\s*"', l)]
+    return tmpl[-1] if tmpl else first_part
+
+
+def insert(src, code, asset_id=None):
     lines = src.split("\n")
-    at = next((i for i in range(len(lines) - 1, -1, -1) if re.match(r'\s*template\s*"', lines[i])), len(lines))
-    return "\n".join(lines[:at] + code.split("\n") + lines[at:])
+    at = car_template_at(lines, asset_id)
+    before = [""] if at > 0 and lines[at - 1].strip() else []   # never against a kit block: it ends at a blank line
+    return "\n".join(lines[:at] + before + code.split("\n") + [""] + lines[at:])
 
 
 class SIGMA_OT_make_script(bpy.types.Operator):
@@ -346,7 +361,7 @@ parts library; the code, how SigmaMod's own assets use each part"""
         if t.is_dirty:
             t = save_text(t)
         with open(paths.asset_lua(s), "w", encoding="utf-8", newline="\n") as f:
-            f.write(insert(t.as_string(), code))
+            f.write(insert(t.as_string(), code, s.asset_id))
         show_text(context, reload_text(paths.asset_lua(s)))
         self.report({'INFO'}, "Added: " + code.split("\n")[0])
         return {'FINISHED'}

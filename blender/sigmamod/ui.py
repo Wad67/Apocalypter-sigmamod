@@ -299,7 +299,7 @@ def draw_parts(l, c):
         b.prop(e, "root", text="Object")
         b.prop(e, "asset_id", text="Id")
         b.prop(e, "display_name", text="Name in game")
-        if e.root is not None and not e.root.get(extras.SWAPPED):
+        if e.root is not None and not e.root.get(extras.PART_SWAPPED):
             wrap(b, c, "Now your mesh: select it, then the game part's mesh (last, so it's the active one), and:", boxes=3)
             b.operator("sigma.use_my_mesh", icon='MOD_DATA_TRANSFER')
 

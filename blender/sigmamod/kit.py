@@ -25,6 +25,7 @@ def _picked(self, context):
     self.none = self.obj is None and role is not None and role.optional and not role.multi   # cleared: left out
     if role and role.kind == 'collider' and self.obj is not None:
         show_as_collider(self.obj)
+    claim(context.scene.sigma, self.role)
     if role and role.multi and self.obj is not None:
         kids = fitting_children(self.obj, role, k)
         if kids:   # a group picked for a role of any number: what's in it that fits
@@ -35,6 +36,13 @@ def _picked(self, context):
                     add_item(s, self.section, self.role, o, auto=False)
     from . import mascot
     mascot.poke()
+
+
+def claim(s, role):
+    # the artist has added, removed or picked something in this role: all of it is theirs, detection leaves it be
+    for r in s.roles:
+        if r.role == role:
+            r.auto = False
 
 
 def _scoped(self, context):
@@ -170,8 +178,8 @@ def detect(context):
     if not k or s.root is None:
         return
     objs = checks.asset_objects(s)
-    mine = {r.role for r in s.roles if not r.auto and (r.obj is not None or r.none)}
-    _remove_where(s, lambda r: r.auto and r.role in mine)   # the artist's pick wins over an older guess
+    mine = {r.role for r in s.roles if not r.auto}   # touched by the artist: theirs, as they left it
+    _remove_where(s, lambda r: r.auto and r.role in mine)   # (a file from before this kept guesses beside picks)
     used = {r.obj for r in s.roles if not r.auto and r.obj is not None}
     want = {}
     for sec in k["sections"]:
@@ -239,7 +247,8 @@ def header(sec):
 def section_block(sec, p):
     k = sigmasrc.kit()
     lines = [header(sec) + (" [required]" if sec.required else "")] + ["-- " + l for l in _wrap(sec.desc)] + [BLOCK_NOTE]
-    return "\n".join(lines + [sigmasrc.section_code(sec, p, k["roles"]), ""])
+    code = "\n".join(l for l in sigmasrc.section_code(sec, p, k["roles"]).split("\n") if l.strip())
+    return "\n".join(lines + [code, ""])   # no blank line inside: a block ends at its first one
 
 
 def _span(lines, sec):
@@ -247,8 +256,9 @@ def _span(lines, sec):
                   (len(l) == len(header(sec)) or l[len(header(sec))] == " ")), None)
     if start is None:
         return None
-    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("-- ## ") or re.match(r'\s*template\s*"', lines[i])),
-               len(lines))
+    # down to the first blank line (the add-on writes none inside a block), and never past another block or a template
+    end = next((i for i in range(start + 1, len(lines)) if not lines[i].strip() or lines[i].startswith(("-- ## ", "-- ### ")) or
+                re.match(r'\s*template\s*"', lines[i])), len(lines))
     return start, end
 
 
@@ -278,8 +288,7 @@ def write_sections(s, k, secs, remove=()):
             lines[sp[0]:sp[1]] = block
         elif block:
             later = [x for x in order[order.index(sec) + 1:] if _span(lines, x)]
-            at = _span(lines, later[0])[0] if later else \
-                next((i for i in range(len(lines) - 1, -1, -1) if re.match(r'\s*template\s*"', lines[i])), len(lines))
+            at = _span(lines, later[0])[0] if later else script.car_template_at(lines, s.asset_id)
             lines[at:at] = block
         src = "\n".join(lines)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
@@ -391,6 +400,7 @@ def bring(context, k, roles):
             want.append((sec, role, n))
     if not want:
         return 0
+    context.view_layer.update()   # every matrix current before positions are read off them
     box = body_box(s)
     if box is None:
         raise RuntimeError("Model a body first. I can't fit wheels to a vibe")
@@ -431,9 +441,9 @@ def bring(context, k, roles):
         if empty:
             empty[0].none = False
             _set(empty[0], o)
-            empty[0].auto = False
         else:
             add_item(s, sec.title, role.name, o, auto=False)
+        claim(s, role.name)
         brought += 1
     hide = hidden_collection(context) if hidden else None
     for x in keep:
@@ -563,6 +573,7 @@ class SIGMA_OT_role_slot(bpy.types.Operator):
         else:
             _remove_where(s, lambda r: r.role == self.role and r.none)   # had one after all
             add_item(s, self.section, self.role, auto=False)
+        claim(s, self.role)
         from . import mascot
         mascot.poke()
         return {'FINISHED'}
@@ -603,9 +614,9 @@ class SIGMA_OT_make_role_object(bpy.types.Operator):
         if empty:
             empty[0].none = False
             _set(empty[0], o)
-            empty[0].auto = False
         else:
             add_item(s, sec.title, self.role, o, auto=False)
+        claim(s, self.role)
         for x in context.selected_objects:
             x.select_set(False)
         o.select_set(True)

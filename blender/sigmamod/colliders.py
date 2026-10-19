@@ -59,6 +59,8 @@ the old ones are replaced"""
 
     detail: bpy.props.EnumProperty(name="Detail", items=DETAIL, default='0.05')
     target: bpy.props.StringProperty(options={'HIDDEN', 'SKIP_SAVE'}, description="The mesh (default: the active object)")
+    replace_in: bpy.props.StringProperty(options={'HIDDEN', 'SKIP_SAVE'},
+                                         description="A part whose game colliders go once these are made")
     into: bpy.props.EnumProperty(name="Put them", items=holder_items)
 
     @classmethod
@@ -84,6 +86,7 @@ the old ones are replaced"""
             self.report({'ERROR'}, "Select a mesh first")
             return {'CANCELLED'}
         self.obj_name, self.into_name = obj.name, self.into[4:] if self.into.startswith("OBJ:") else ""
+        self.replace_name = self.replace_in
         v, f = mesh_arrays(context, obj)
         if len(f) == 0:
             self.report({'ERROR'}, f"'{obj.name}' has no faces")
@@ -130,7 +133,14 @@ the old ones are replaced"""
                 os.remove(p)
             except OSError:
                 pass
-        self.report({'INFO'}, f"{count} colliders for '{obj.name}'" + (" (mirrored halves)" if bool(d["mirrored"]) else ""))
+        gone = 0
+        top = bpy.data.objects.get(self.replace_name) if self.replace_name and count else None
+        if top is not None:   # the new ones exist: the game part's old ones can go
+            for o in [o for o in [top] + list(top.children_recursive) if o.get("sigma") == "collider" and not o.get("generated")]:
+                bpy.data.objects.remove(o)
+                gone += 1
+        self.report({'INFO'}, f"{count} colliders for '{obj.name}'" + (" (mirrored halves)" if bool(d["mirrored"]) else "")
+                    + (f"; the game's {gone} old ones deleted" if gone else ""))
 
 
 class SIGMA_OT_remove_colliders(bpy.types.Operator):

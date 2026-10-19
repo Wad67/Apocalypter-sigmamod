@@ -12,7 +12,8 @@ from . import assets, checks, gamedata, jobs, paths, script, sigmasrc
 
 BLOCK = "-- ### Part: "
 NOTE = "-- (written by the SigmaMod add-on for a part made in Blender: change it there, not here)"
-SWAPPED = "sigma_mesh_swapped"
+SWAPPED = "sigma_mesh_swapped"        # on the mesh the artist's was put into
+PART_SWAPPED = "sigma_part_swapped"   # on the part's top object: some mesh of it is the artist's
 
 
 def _poke():
@@ -53,19 +54,23 @@ def objects(s):
 # ---- the script's part blocks
 
 def block(e):
+    from .script import _q
     return "\n".join([BLOCK + e.asset_id, NOTE,
-                      f'template "{e.asset_id}" {{ model = "{e.root.name}", name = "{e.display_name or e.asset_id}" }}', ""])
+                      f'template {_q(e.asset_id)} {{ model = {_q(e.root.name)}, name = {_q(e.display_name or e.asset_id)} }}', ""])
 
 
 def _spans(lines):
     """part id -> (first line, line after the block)"""
     out = {}
     for i, l in enumerate(lines):
-        if l.startswith(BLOCK):
+        if l.startswith(BLOCK):   # the header, down to its template line, and the blank line after it
             j = i + 1
-            while j < len(lines) and lines[j].strip():
+            while j < len(lines) and not re.match(r'\s*template\s*"', lines[j]) and not lines[j].startswith(BLOCK):
                 j += 1
-            out[l[len(BLOCK):].strip()] = (i, j + 1 if j < len(lines) else j)
+            j = j + 1 if j < len(lines) and re.match(r'\s*template\s*"', lines[j]) else j
+            if j < len(lines) and not lines[j].strip():
+                j += 1
+            out[l[len(BLOCK):].strip()] = (i, j)
     return out
 
 
@@ -154,6 +159,7 @@ Then swap your mesh in with "Use my mesh for it". It's a part of its own, in the
         from . import kit
         s = context.scene.sigma
         k = sigmasrc.kit()
+        context.view_layer.update()
         hinge = next((r.obj for r in s.roles if r.role == self.slot and r.obj is not None), None)
         before = set(context.scene.objects)
         bpy.ops.import_scene.gltf(filepath=path)
@@ -165,7 +171,7 @@ Then swap your mesh in with "Use my mesh for it". It's a part of its own, in the
         root = roots[0]
         if hinge is not None:   # where it sits when fitted: on the slot, turned as it is
             loc, rot, _ = hinge.matrix_world.decompose()
-            root.matrix_world = Matrix.LocRotScale(loc, rot, None)
+            root.matrix_world = Matrix.LocRotScale(loc, rot, root.matrix_world.to_scale())   # its own scale stays
         role = kit.role_of(k, self.slot) if k else None
         label = (role.label if role else self.accepts).replace(" slot", "")
         e = s.extras.add()
@@ -204,10 +210,13 @@ The game's object keeps everything that makes it the game's part; it just looks 
         return a is not None and a.type == 'MESH' and len(others) == 1 and others[0].type == 'MESH'
 
     def execute(self, context):
+        context.view_layer.update()   # every matrix current before anything is moved by one
         target = context.active_object
         mine = next(o for o in context.selected_objects if o != target)
         m = target.matrix_world.inverted() @ mine.matrix_world
-        me = mine.data.copy()
+        # as it exports: its modifiers applied (Mirror, Solidify...), not just the mesh under them
+        me = bpy.data.meshes.new_from_object(mine.evaluated_get(context.evaluated_depsgraph_get()),
+                                             preserve_all_data_layers=True, depsgraph=context.evaluated_depsgraph_get())
         me.transform(m)
         if m.determinant() < 0:   # mirrored on the way: faces would point inwards
             me.flip_normals()
@@ -219,7 +228,11 @@ The game's object keeps everything that makes it the game's part; it just looks 
         while top.parent:
             top = top.parent
         target[SWAPPED] = True
-        top[SWAPPED] = True
+        top[PART_SWAPPED] = True
+        for c in list(mine.children):   # what was under the artist's mesh stays where it is, under the part
+            w = c.matrix_world.copy()
+            c.parent = target
+            c.matrix_world = w
         mesh_of_mine = mine.data
         bpy.data.objects.remove(mine)
         if mesh_of_mine.users == 0:
@@ -242,16 +255,13 @@ class SIGMA_OT_replace_part_colliders(bpy.types.Operator):
         top = bpy.data.objects.get(self.root)
         if top is None:
             return {'CANCELLED'}
-        under = [top] + list(top.children_recursive)
-        gone = [o for o in under if o.get("sigma") == "collider" and not o.get("generated")]
-        for o in gone:
-            bpy.data.objects.remove(o)
-        swapped = next((o for o in [top] + list(top.children_recursive) if o.get(SWAPPED) and o.type == 'MESH'), None)
-        _poke()
+        meshes = [o for o in [top] + list(top.children_recursive) if o.get(SWAPPED) and o.type == 'MESH']
+        swapped = next((o for o in meshes if o != top), meshes[0] if meshes else None)
         if swapped is None:
-            self.report({'INFO'}, f"{len(gone)} of the game's colliders deleted. Now make colliders from your mesh")
-            return {'FINISHED'}
-        return bpy.ops.sigma.make_colliders('INVOKE_DEFAULT', target=swapped.name)
+            self.report({'ERROR'}, "Put your mesh in first (Use my mesh for it): the new colliders are made from it")
+            return {'CANCELLED'}
+        # the game's go once the new ones exist, not before: if they're never made, the old ones stay
+        return bpy.ops.sigma.make_colliders('INVOKE_DEFAULT', target=swapped.name, replace_in=top.name)
 
 
 class SIGMA_OT_remove_extra(bpy.types.Operator):
