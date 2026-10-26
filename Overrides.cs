@@ -11,7 +11,8 @@ namespace SigmaMod
     //
     //   { "<sigma_id>": { <object spec for the root>,
     //                     "nodes": { "<object>": { <object spec> }, ... },
-    //                     "drive": "rear" | "front" | "all" } }   (chassis only)
+    //                     "drive": "rear" | "front" | "all",
+    //                     "center_of_mass": "<object>" | [x, y, z], "dimensions": [w, h, l] } }   (chassis only)
     //
     // <object> is a Blender object name or a sigma_id. An object spec holds, applied in this order:
     //   "layer": <number or layer name>, "tag": "<tag>", "active": false (switched off until something switches it on)
@@ -41,7 +42,7 @@ namespace SigmaMod
     internal static class Overrides
     {
         private const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-        private static readonly HashSet<string> Reserved = new HashSet<string> { "nodes", "drive", "poi", "places", "replaces", "scale", "instance", "fsm", "add", "collider", "playmaker", "layer", "tag", "active", "parent", "position", "rotation", "at", "align", "copy" };
+        private static readonly HashSet<string> Reserved = new HashSet<string> { "nodes", "drive", "center_of_mass", "dimensions", "poi", "places", "replaces", "scale", "instance", "fsm", "add", "collider", "playmaker", "layer", "tag", "active", "parent", "position", "rotation", "at", "align", "copy" };
 
         private static IEnumerable<KeyValuePair<GameObject, Dictionary<string, object>>> Objects(GameObject root, Dictionary<string, object> spec,
                                                                                                Func<string, GameObject> node, string where)

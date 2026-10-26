@@ -639,6 +639,11 @@ namespace SigmaMod
             else if (type != null) Plugin.Log.LogWarning($"custom prefab: '{id}': unknown {TypeKey} '{type}'");
 
             if (overrides != null) Overrides.Apply(go, overrides, Node, ctx, where);
+            if (chassis)
+            {
+                var added = CenterOfMass(go, id, overrides, Node);
+                if (added != null) es3.localRefs[added] = StableId(prefabId + "/root#VariableCenterOfMass");
+            }
             var vcl =go.GetComponent<NWH.VehiclePhysics2.VehicleController>();
             t.IsVehicle = vcl != null;
             if (vcl != null && vcl.stateSettings == null)
@@ -710,6 +715,89 @@ namespace SigmaMod
             Plugin.Log.LogInfo($"custom prefab: '{id}': new chassis, {vc.powertrain.wheels.Count} wheels in {vc.powertrain.wheelGroups.Count} axles, {drive} drive");
             if (overrides == null || !overrides.TryGetValue("Rigidbody", out var r) || !(r is Dictionary<string, object> rd) || !rd.ContainsKey("mass"))
                 Plugin.Log.LogWarning($"custom prefab: '{id}': chassis mass is the default 1 kg; set Rigidbody.mass in the .json");
+        }
+
+        // The centre of mass and the inertia, set the way every vanilla car sets them: NWH's VariableCenterOfMass on
+        // the root, a fixed point (useDefaultCenterOfMass off) and the inertia of a solid box of the car's mass and
+        // dimensions (NWH's CalculateInertia, which is what the vanilla values are: Outrider 1400 kg, 1.8 x 1.31 x
+        // 4.74 m -> 2821, 2999, 578), written into the Rigidbody every physics step. Without it Unity puts the
+        // centre of mass in the middle of the colliders and works the inertia out from their shapes.
+        //   "center_of_mass": an object (Blender name or sigma_id: its position) or [x, y, z] from the root, in metres
+        //   "dimensions": [width, height, length] in metres for the inertia (else the body's size, from its meshes)
+        // A donor's VariableCenterOfMass (a changed game car) keeps its point unless "center_of_mass" moves it; its
+        // inertia is worked out again for the chassis' own mass. Returns the component when it was added here.
+        private static Component CenterOfMass(GameObject go, string id, Dictionary<string, object> overrides, Func<string, GameObject> node)
+        {
+            var rb = go.GetComponent<Rigidbody>();
+            if (rb == null) return null;
+            var vcom = go.GetComponent<NWH.Common.CoM.VariableCenterOfMass>();
+            object cv = null, dv = null;
+            overrides?.TryGetValue("center_of_mass", out cv);
+            overrides?.TryGetValue("dimensions", out dv);
+            Vector3? at = null;
+            if (cv is string cn)
+            {
+                var n = node(cn);
+                if (n == null) Plugin.Log.LogWarning($"custom prefab: '{id}': center_of_mass '{cn}' is no object in the model");
+                else at = go.transform.InverseTransformPoint(n.transform.position);
+            }
+            else if (Vec(cv) is Vector3 cp) at = cp;
+            if (vcom == null && at == null)
+            {
+                Plugin.Log.LogWarning($"custom prefab: '{id}': no center_of_mass, so Unity puts it in the middle of the colliders " +
+                                      "and the inertia comes from their shapes (vanilla cars set both; see the Blender add-on's Tuning)");
+                return null;
+            }
+            Component added = null;
+            if (vcom == null)
+            {
+                vcom = go.AddComponent<NWH.Common.CoM.VariableCenterOfMass>();
+                added = vcom;
+                vcom.dimensions = Vec(dv) ?? BodySize(go);
+            }
+            else if (Vec(dv) is Vector3 d) vcom.dimensions = d;
+            vcom.useDefaultMass = true;   // the Rigidbody's mass, as the vanilla cars have it
+            vcom.useMassAffectors = false;
+            if (at != null)
+            {
+                vcom.useDefaultCenterOfMass = false;
+                vcom.centerOfMass = vcom.combinedCenterOfMass = at.Value;
+            }
+            for (int i = 0; i < 3; i++) vcom.dimensions[i] = Mathf.Max(vcom.dimensions[i], 0.01f);
+            vcom.useDefaultInertia = false;
+            vcom.baseMass = vcom.combinedMass = rb.mass;
+            vcom.inertiaTensor = vcom.combinedInertiaTensor = NWH.Common.CoM.VariableCenterOfMass.CalculateInertia(vcom.dimensions, rb.mass);
+            rb.centerOfMass = vcom.centerOfMass;
+            rb.inertiaTensor = vcom.inertiaTensor;
+            Plugin.Log.LogInfo($"custom prefab: '{id}': centre of mass {vcom.centerOfMass:F3} from the root{(at == null ? " (the donor's)" : "")}, " +
+                               $"inertia {vcom.inertiaTensor:F0} ({rb.mass:F0} kg, {vcom.dimensions:F2} m)");
+            return added;
+        }
+
+        private static Vector3? Vec(object v)
+        {
+            if (!(v is List<object> l) || l.Count != 3) return null;
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            return new Vector3(Convert.ToSingle(l[0], ci), Convert.ToSingle(l[1], ci), Convert.ToSingle(l[2], ci));
+        }
+
+        // the size of what's shown of the car (its meshes, switched-off ones left out), in the root's axes
+        private static Vector3 BodySize(GameObject go)
+        {
+            var b = new Bounds();
+            bool any = false;
+            foreach (var mf in go.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf.sharedMesh == null || !mf.gameObject.activeSelf) continue;
+                var mb = mf.sharedMesh.bounds;
+                for (int i = 0; i < 8; i++)
+                {
+                    var corner = mb.center + Vector3.Scale(mb.extents, new Vector3((i & 1) == 0 ? -1 : 1, (i & 2) == 0 ? -1 : 1, (i & 4) == 0 ? -1 : 1));
+                    var p = go.transform.InverseTransformPoint(mf.transform.TransformPoint(corner));
+                    if (any) b.Encapsulate(p); else { b = new Bounds(p, Vector3.zero); any = true; }
+                }
+            }
+            return any ? b.size : new Vector3(1.8f, 1.6f, 4.6f);   // NWH's own default
         }
 
         // Drive layout from "drive" in the chassis .json ("front", "rear", "all", "none", or an axle number, front first:

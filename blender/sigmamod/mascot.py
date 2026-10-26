@@ -115,8 +115,13 @@ def _tick():
                 if ctx.scene.sigma.kind == 'CAR' and ctx.scene.sigma.root is not None:
                     from . import kit
                     kit.detect(ctx)
+                    wrote = kit.autosync(ctx)   # the script as the picks are
+                    if wrote:
+                        jobs.set_status("Script: " + ", ".join(wrote) + " written as picked")
                     from . import preview
                     preview.update(ctx)   # slots and hubs may have moved
+                from . import rust
+                rust.upgrade()   # rust from an earlier version: its group's new settings
                 export.recheck(ctx)
                 _redraw()
     except Exception as e:   # a failing check mustn't kill the timer

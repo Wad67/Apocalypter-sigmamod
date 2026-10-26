@@ -212,7 +212,7 @@ def donor_items(self, context):
     if side in ("L", "R"):   # the same side's first
         names = sorted(names, key=lambda n: not n.upper().endswith(("_" + side, side)))
     donor_items.cache = [(n, n, f"Start from the game's {n}") for n in names] or [("", f"(no {self.accepts} in the game's exports)", "")]
-    return donor_items.cache
+    return paths.stable("donors:" + self.accepts, donor_items.cache)
 
 
 class SIGMA_OT_make_slot_part(jobs.JobMixin, bpy.types.Operator):

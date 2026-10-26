@@ -38,7 +38,7 @@ def organize(scene):
 def export_items(self, context):
     items = [(p, n, p) for n, p in gamedata.exports(include_live=context.scene.sigma.show_live)]
     export_items.cache = items or [("", "(nothing exported yet)", "")]
-    return export_items.cache
+    return paths.stable("exports", export_items.cache)
 
 
 def is_vehicle(path):
@@ -252,7 +252,7 @@ class SIGMA_OT_keep_own_material(bpy.types.Operator):
 def material_items(self, context):
     material_items.cache = [(n, n, os.path.basename(p)) for n, (_, p) in sorted(gamedata.game_materials().items(), key=lambda e: e[0].lower())] \
         or [("", "(nothing exported yet)", "")]
-    return material_items.cache
+    return paths.stable("materials", material_items.cache)
 
 
 class SIGMA_OT_game_material(bpy.types.Operator):

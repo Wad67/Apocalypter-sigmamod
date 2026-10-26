@@ -45,7 +45,10 @@ local WC = "NWH.WheelController3D.WheelController"
 --   controller (NWH VehicleController values over these defaults), add (more components on the root),
 --   speed (true: the Speed FSM a driver's seat reads), flip_over (true or its settings: NWH's flip-over module),
 --   dashboard (the dashboard object, for the ignition's gauges), parked_brakes (false: the wheels aren't clamped while
---   nobody drives it: for a machine with its own handbrake, or none)
+--   nobody drives it: for a machine with its own handbrake, or none), center_of_mass (an object's name: where it is,
+--   or { x, y, z } from the root, Unity's axes; the point the car balances on, set as every vanilla car sets it, its
+--   inertia that of a solid box of its mass and dimensions; left out, Unity takes the middle of the colliders),
+--   dimensions ({ width, height, length } in metres for that inertia; else the body's size)
 function parts.chassis(o)
   o = o or {}
   local g = {
@@ -135,6 +138,7 @@ function parts.chassis(o)
     nodes = {},
   }
   if o.static then g.Rigidbody.isKinematic = true end
+  g.center_of_mass, g.dimensions = o.center_of_mass, o.dimensions
   -- NWH clamps every wheel with its brakes' full torque while its brakes are switched off (the game's parking brake for
   -- a car nobody drives); a machine nobody sits in (a stand, a generator) has its own handbrake, or none
   if o.parked_brakes == false then g.VehicleController["brakes.brakeWhileDisabled"] = false end

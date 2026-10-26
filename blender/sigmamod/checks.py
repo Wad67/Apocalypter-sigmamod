@@ -142,6 +142,12 @@ def run(context):
             _kit_checks(s, add)
 
     _scene_checks(context, s, add)
+    from . import rust
+    live = {s_.material for o in objs if o.type == 'MESH' for s_ in o.material_slots
+            if s_.material is not None and rust.rust_node(s_.material) is not None}
+    for m in sorted(live, key=lambda m: m.name):
+        add(WARNING, f"'{m.name}' is a live rust material: the game can't run it, so it would come out blank. Bake it "
+                     "(Materials panel).", "sigma.rust_bake", "Bake it", {"material": m.name}, key="rust:" + m.name)
     if kind == 'ATTACHABLE':
         from . import attach
         if attach.current(context):
@@ -322,7 +328,10 @@ def _scene_checks(context, s, add):
     # hidden in Blender is not hidden in the game (what's in an unticked collection has a warning of its own)
     in_layer = set(context.view_layer.objects)
     hidden = {lc.collection for lc in _layer_collections(context.view_layer.layer_collection) if lc.hide_viewport}
-    shown = [o for o in objs if o.type == 'MESH' and o in in_layer and _hidden_in_blender(o, hidden)
+    from . import preview
+    lift_up, lift_down = preview.lift_objects(context) if s.kind == 'CAR' else ([], [])
+    swapped = set(lift_up) | set(lift_down)   # the lift kit's looks, switched by Show it lifted: the game switches them too
+    shown = [o for o in objs if o.type == 'MESH' and o in in_layer and o not in swapped and _hidden_in_blender(o, hidden)
              and o.get("sigma") != "collider" and not _game_hides(o) and not (role_kind(o) & {"collider", "hidden", "state"})
              and not any(c.name in ("Far",) for c in o.users_collection)]
     if shown:

@@ -147,7 +147,7 @@ def like_items(self, context):
     have = {x.prefab for x in context.scene.sigma.spawning.like}
     like_items.cache = [(pid, n, f"Spawn wherever the game's {n} spawns") for n, pid in prefabs() if pid not in have] \
         or [("", "(nothing exported from the game yet)", "")]
-    return like_items.cache
+    return paths.stable("spawn_like", like_items.cache)
 
 
 like_items.cache = []

@@ -62,6 +62,7 @@ class SigmaRole(bpy.types.PropertyGroup):
 
 class SigmaSectionState(bpy.types.PropertyGroup):
     title: bpy.props.StringProperty()
+    taken_out: bpy.props.BoolProperty(description="Taken out of the car on purpose: not put back by itself")
     scope: bpy.props.PointerProperty(type=bpy.types.Object, update=_scoped, name="Look in",
                                      description="Where your objects for this are: a group (an empty with them under it). "
                                                  "Empty: the whole asset")
@@ -178,7 +179,22 @@ def fitting_children(obj, role, k):
 def migrate(s, k):
     from . import extras
     extras.prune(s)   # parts whose object was deleted
+    _gone(s)
+    merge_blank_copies()   # untextured copies of game materials the file has textured
     _migrate(s, k)
+
+
+def _gone(s):
+    """Picks of objects deleted in Blender (only out of the scene: the pick keeps them): a guess goes, an artist's pick
+    is emptied (its row stays, to pick again)."""
+    scene = bpy.context.scene
+    for i in range(len(s.roles) - 1, -1, -1):
+        r = s.roles[i]
+        if r.obj is not None and scene.objects.get(r.obj.name) != r.obj:
+            if r.auto:
+                s.roles.remove(i)
+            else:
+                _set(r, None)
 
 
 def _migrate(s, k):
@@ -348,6 +364,33 @@ def write_sections(s, k, secs, remove=()):
     script.reload_text(path)
 
 
+def complete(sec, p):
+    """Whether the car has this section's objects: every one it needs picked, and something picked."""
+    return any(p.get(r.name) for r in sec.roles) and all(p.get(r.name) for r in sec.roles if not r.optional)
+
+
+def autosync(context):
+    """The car's script kept as the picks are: a kit section in it written again when its picks change, and one the
+    car has every object of (found, brought or picked) put in, unless it was taken out on purpose. [titles written]"""
+    s = context.scene.sigma
+    k = sigmasrc.kit()
+    path = paths.asset_lua(s)
+    if s.kind != 'CAR' or not k or not path or not os.path.isfile(path) or s.root is None:
+        return []
+    src = script.read_script(s) or ""
+    p = picks(s, k)
+    stale = [sec for sec in k["sections"] if block_of(src, sec) is not None
+             and block_of(src, sec).strip() != section_block(sec, p).strip()]
+    new = [sec.title for sec in k["sections"] if block_of(src, sec) is None and not by_hand(src, sec, p)
+           and complete(sec, p) and not getattr(state(s, sec.title), "taken_out", False)]
+    add = [sec for sec in with_needs(k, new) if block_of(src, sec) is None and not by_hand(src, sec, p)
+           and not getattr(state(s, sec.title), "taken_out", False)]
+    todo = stale + [sec for sec in add if sec not in stale]
+    if todo:
+        write_sections(s, k, todo)
+    return [sec.title for sec in todo]
+
+
 def sync(context):
     """Every kit section the script has, written again from the picks (before export)."""
     s = context.scene.sigma
@@ -472,7 +515,7 @@ def bring(context, k, roles):
     rhi = Vector([max((ref.matrix_world @ Vector(c))[i] for c in ref.bound_box) for i in range(3)])
     lo, hi = box
     cols = s.root.users_collection or [context.scene.collection]
-    keep, brought, hidden = set(), 0, set()
+    keep, brought, child = set(), 0, []
     for sec, role, n in want:
         o = got.get(n)
         if o is None:
@@ -489,8 +532,8 @@ def bring(context, k, roles):
         for x in [o] + list(o.children_recursive):
             keep.add(x)
             x[TAG] = sec.title
-            if role.kind == 'hidden':
-                hidden.add(x)
+            if x is not o:   # what came with it fills its own role too (the springs under the lifted suspension)
+                child.append(x)
             if role.kind == 'collider' or (x.type == 'MESH' and (not x.data.materials or all(
                     mt is None or mt.name.startswith("COLLIDER") for mt in x.data.materials))):
                 show_as_collider(x)
@@ -502,14 +545,72 @@ def bring(context, k, roles):
             add_item(s, sec.title, role.name, o, auto=False)
         claim(s, role.name)
         brought += 1
-    hide = hidden_collection(context) if hidden else None
-    for x in keep:
+    for x in keep:   # with the asset's own objects: the game hides what it hides, Show it lifted shows it
         for c in list(x.users_collection):
             c.objects.unlink(x)
-        for c in ([hide] if x in hidden else cols):
+        for c in cols:
             c.objects.link(x)
+    for x in child:
+        name = x.get(TAG_NAME)
+        role = role_of(k, name) if name else None
+        if role is None or name in roles:
+            continue
+        for i in range(len(s.roles) - 1, -1, -1):   # instead of what was there (a deleted object, nothing)
+            r = s.roles[i]
+            if r.role == name and (r.obj is None or r.obj.name not in context.scene.objects or not role.multi):
+                s.roles.remove(i)
+        add_item(s, k["roles"][name].title, name, x, auto=False)
+        claim(s, name)
+    _own_materials(keep)
     _drop_rest(tmp, keep)
     return brought
+
+
+def _textured(m):
+    return bool(m.use_nodes and m.node_tree and any(n.type == 'TEX_IMAGE' and n.image is not None for n in m.node_tree.nodes))
+
+
+def _own_materials(objs):
+    """Brought objects on the file's own materials where it has one of the same name (the import makes copies,
+    "rusted_black_metal.007", blank in Blender: the Sigma's file leaves the game's textures to the game)."""
+    swapped = set()
+    for o in objs:
+        if o.type != 'MESH':
+            continue
+        for slot in o.material_slots:
+            m = slot.material
+            base = re.sub(r"\.\d{3}$", "", m.name) if m else None
+            if m is not None and base != m.name and base in bpy.data.materials:
+                slot.material = bpy.data.materials[base]
+                swapped.add(m)
+    for m in swapped:
+        if m.users == 0:
+            bpy.data.materials.remove(m)
+    merge_blank_copies()
+
+
+def merge_blank_copies():
+    """Blank copies of a game material the file also has textured (the same game id, es3global: the same material to
+    the game) swapped for the textured one, and the copies deleted. They come from importing the game's or the
+    Sigma's objects, which leave the game's textures to the game, so they show untextured in Blender. Returns how many
+    copies went."""
+    textured = {}
+    for m in bpy.data.materials:
+        gid = m.get("es3global")
+        if gid and _textured(m) and gid not in textured:
+            textured[gid] = m
+    if not textured:
+        return 0
+    gone = 0
+    for m in list(bpy.data.materials):
+        gid = m.get("es3global")
+        best = textured.get(gid) if gid else None
+        if best is not None and m is not best and not _textured(m):
+            m.user_remap(best)
+            if m.users == 0:
+                bpy.data.materials.remove(m)
+                gone += 1
+    return gone
 
 
 HIDDEN = "Hidden in game"
@@ -580,6 +681,10 @@ they belong), and its lines in the script, written for what's picked. What it ne
         _ensure_script(s)
         src, p = script.read_script(s), picks(s, k)
         write_sections(s, k, [sec for sec in secs if not (block_of(src, sec) is None and by_hand(src, sec, p))])
+        for sec in secs:
+            st = state(s, sec.title)
+            if st is not None:
+                st.taken_out = False
         self.report({'INFO'}, f"In your car: {', '.join(sec.title for sec in secs)}" + (f" ({n} of the Sigma's objects brought)" if n else ""))
         return {'FINISHED'}
 
@@ -754,6 +859,9 @@ class SIGMA_OT_remove_kit(bpy.types.Operator):
         sec = next((x for x in k["sections"] if x.title == self.section), None)
         if sec:
             write_sections(context.scene.sigma, k, [], remove=[sec])
+            st = state(context.scene.sigma, sec.title)
+            if st is not None:
+                st.taken_out = True
         return {'FINISHED'}
 
 

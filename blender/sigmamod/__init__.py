@@ -4,7 +4,7 @@
 # game's textures) behind its buttons.
 import bpy
 
-from . import assets, attach, checks, colliders, export, extras, jobs, kit, mascot, paths, preview, script, spawn, tuning, ui
+from . import assets, attach, checks, colliders, export, extras, jobs, kit, mascot, paths, preview, rust, script, spawn, tuning, ui
 from .script import KINDS
 
 
@@ -45,6 +45,22 @@ class SigmaSettings(bpy.types.PropertyGroup):
     show_live: bpy.props.BoolProperty(name="Live exports", description="Also list the live exports (the car nearest you, parts fitted)")
     last_export: bpy.props.StringProperty()
     open_step: bpy.props.IntProperty(default=-1)
+    bake_size: bpy.props.EnumProperty(name="Bake size", items=rust.SIZES, default='2048',
+                                      description="The baked image's size: bigger is sharper, and a bigger file")
+    rust_pick: bpy.props.EnumProperty(name="Rust texture", items=rust.rust_items, update=rust.picked,
+                                      description="The game's rust texture under the paint (from Export All's textures)")
+    bake_samples: bpy.props.IntProperty(name="Samples", default=64, min=1, max=4096,
+                                        description="Cycles samples for the bake: the crevices' occlusion is sampled, so "
+                                                    "too few leaves it grainy")
+    bake_islands_on: bpy.props.BoolProperty(name="Cut out floating pieces", default=True,
+                                            description="A piece of metal or rust with holes all round it (inside one UV "
+                                                        "island) can't hang in mid air: cut it out")
+    bake_islands: bpy.props.FloatProperty(name="Up to", subtype='PERCENTAGE', default=5, min=0.01, max=100,
+                                          description="The biggest piece cut out, as a share of all the UV area: bigger "
+                                                      "pieces are kept (100%: every one that floats)")
+    bake_pinholes: bpy.props.IntProperty(name="Fill pinholes up to", default=16, min=0, max=10000, subtype='PIXEL',
+                                         description="Holes this small (pixels) in solid metal are noise: filled in "
+                                                     "(0: none)")
     open_tuning: bpy.props.BoolProperty(name="Tuning", update=tuning.opened,
                                         description="Show or hide the car's tuning: mass, springs, steering, brakes, "
                                                     "gears, differential")
@@ -67,8 +83,10 @@ class SigmaSettings(bpy.types.PropertyGroup):
                                           update=lambda self, context: preview.wheel_changed(context),
                                           description="Which of the game's wheels the preview puts on your hubs")
     preview_lifted: bpy.props.BoolProperty(name="Show it lifted", update=lambda self, context: preview.lifted(context),
-                                           description="Show the car with a lift kit fitted: the lifted meshes, and the "
-                                                       "preview's wheels where the lifted springs hold them, further out")
+                                           description="Switch the car between its two looks, as the game has them. On: "
+                                                       "a lift kit fitted (the lifted suspension shown, the stock hidden, the "
+                                                       "game's lift kit on its slot, the wheels lifted). Off: no kit (the "
+                                                       "stock shown, the lifted hidden). To edit the lifted parts, switch it on")
     preview_suspension: bpy.props.EnumProperty(
         name="Suspension", default='REST', update=lambda self, context: preview.suspension_changed(context),
         items=[('UP', "Bottomed out", "The suspension pushed all the way up: each wheel at its hub marker (the most "
@@ -100,7 +118,7 @@ class SigmaPreferences(bpy.types.AddonPreferences):
 
 classes = kit.props + extras.props + tuning.props + attach.props + spawn.props + (SigmaSettings, SigmaPreferences) + jobs.classes + assets.classes + colliders.classes + checks.classes \
     + script.classes + export.classes + kit.classes + extras.classes + mascot.classes + ui.classes + tuning.classes \
-    + preview.classes + attach.classes + spawn.classes
+    + preview.classes + attach.classes + spawn.classes + rust.classes
 
 
 def register():

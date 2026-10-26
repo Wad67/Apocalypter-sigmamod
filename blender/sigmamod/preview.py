@@ -17,7 +17,8 @@ COLLECTION = "SigmaMod preview"
 LIBRARY = "SigmaMod preview parts"
 TAG = "sigma_preview"            # on every preview object: what it shows ("part", "wheel", "ground", "ghost")
 SLOT = "sigma_preview_slot"      # the slot (or hub) object it is on
-SKIP = {"wheel"}                 # kinds shown by the wheels, not as parts on slots
+SKIP = {"wheel", "suspension"}   # not shown as parts on slots: wheels are (drawn on the hubs); a fitted lift kit's
+                                  # own mesh isn't drawn in game at all (the car shows its lifted suspension)
 
 
 # ---- the game's way of turning things, in Blender's terms
@@ -194,10 +195,29 @@ def wheel_items(self, context):
     names = gamedata.part_ids().get("wheel", [])
     wheel_items.cache = [("PLAIN", "The game's plain wheel", "wheel_1, or the first the game has")] + \
         [(n, n, f"The game's {n} on every hub") for n in names]
-    return wheel_items.cache
+    return paths.stable("wheels", wheel_items.cache)
 
 
 wheel_items.cache = []
+
+
+def build_soon():
+    """The preview built again, just after this setting's change handler is done: an operator run from inside one
+    upsets Blender's Python ("PYTHON INTERNAL STATE CONTEXT BUG"), so it's run from a timer, in a window."""
+    def run():
+        wm = bpy.context.window_manager
+        win = wm.windows[0] if wm and wm.windows else None
+        if win is None:
+            build(bpy.context)
+            return None
+        area = next((a for a in win.screen.areas if a.type == 'VIEW_3D'), None)
+        with bpy.context.temp_override(window=win, area=area):
+            bpy.ops.sigma.preview_build('EXEC_DEFAULT')
+        return None
+    if bpy.app.background:   # no window to wait for (tests, command line): now
+        build(bpy.context)
+    else:
+        bpy.app.timers.register(run, first_interval=0.01)
 
 
 def suspension_changed(context):
@@ -205,14 +225,14 @@ def suspension_changed(context):
     s = context.scene.sigma
     if not s.preview_wheels:
         s["preview_wheels"] = True
-        bpy.ops.sigma.preview_build('EXEC_DEFAULT')
+        build_soon()
     else:
         update(context)
 
 
 def wheel_changed(context):
     if context.scene.sigma.preview_wheels:
-        bpy.ops.sigma.preview_build('EXEC_DEFAULT')
+        build_soon()
 
 
 def chosen(context, kind, slot, seed):
@@ -239,20 +259,11 @@ def wanted(context):
     """{donor: [(slot, tag)]}: what the preview shows now."""
     s = context.scene.sigma
     out = {}
-    from . import tuning
-    lift = tuning.lift_slot(script.read_script(s) or "")
-    lift = bpy.data.objects.get(lift) if lift else None
     if s.preview_parts:
         for slot, kind in slots(context):
-            if kind == "suspension" and not s.preview_lifted:   # a fitted lift kit is what lifts it: shown lifted only
-                continue
             d = chosen(context, kind, slot, s.preview_seed)
             if d:
                 out.setdefault(d, []).append((slot, "part"))
-    if s.preview_lifted and lift is not None and not (s.preview_parts and any(sl == lift for sl, _ in slots(context))):
-        d = chosen(context, "suspension", lift, 0)   # the game's lift kit on the slot
-        if d:
-            out.setdefault(d, []).append((lift, "part"))
     if s.preview_wheels:
         for w, hub, _ in hubs(context, script.read_script(s) or ""):
             d = chosen(context, "wheel", hub, s.preview_seed)
@@ -299,16 +310,78 @@ def build(context):
     update(context)
 
 
+def _put(o, m):
+    """o moved to m only if it isn't there already: every write is a change to the scene, and Cycles' rendered view
+    starts again on each one (the checks run every few seconds)."""
+    cur = o.matrix_world
+    if any(abs(cur[i][j] - m[i][j]) > 1e-6 for i in range(4) for j in range(4)):
+        o.matrix_world = m
+
+
+def _set(owner, key, value, prop=True):
+    """A property (or custom property) written only when it changes, for the same reason."""
+    if prop:
+        if getattr(owner, key) != value:
+            setattr(owner, key, value)
+    elif owner.get(key) is None or list(owner[key]) != list(value):
+        owner[key] = value
+
+
+LIFT_FROM, LIFT_OFF = "sigma_lift_from", "sigma_lift_off"   # on a hub moved out by Show it lifted: where it was, how far
+
+
+def lift_hubs(context):
+    """Show it lifted moves the wheels as a fitted lift kit does (SigmaMod.Parts.LiftKit): each hub marker out by
+    "Wheels out by", on its own side. Off (and before export): back where they were. A hub moved by hand while lifted
+    keeps that move."""
+    s = context.scene.sigma
+    from . import tuning
+    if s.kind == 'CAR' and not tuning.current(context):
+        tuning.load(context)   # its lift values, read from the script (the Tuning box may never have been opened)
+    src = script.read_script(s) or ""
+    on = s.preview_lifted and tuning.lift_slot(src) and s.root is not None
+    car = s.root.matrix_world.to_quaternion() if s.root is not None else Quaternion()
+    hub_objs = {hub for _, hub, _ in hubs(context, src)} if on else set()
+    for o in list(bpy.data.objects):
+        if LIFT_FROM in o and o not in hub_objs:   # lifted no more (or no longer a hub): back
+            o.matrix_world.translation = o.matrix_world.translation - Vector(o[LIFT_OFF])
+            del o[LIFT_FROM], o[LIFT_OFF]
+    for hub in hub_objs:
+        now = hub.matrix_world.translation.copy()
+        if LIFT_FROM in hub:
+            was = Vector(hub[LIFT_FROM])
+            if (now - (was + Vector(hub[LIFT_OFF]))).length > 1e-5:   # moved by hand: its new place, shut
+                was = now - Vector(hub[LIFT_OFF])
+        else:
+            was = now
+        x = (s.root.matrix_world.inverted() @ was).x
+        off = car @ Vector((s.tuning.lift_widen * (1 if x >= 0 else -1), 0, 0))
+        _set(hub, LIFT_FROM, [round(x, 6) for x in was], prop=False)
+        _set(hub, LIFT_OFF, [round(x, 6) for x in off], prop=False)
+        m = hub.matrix_world.copy()
+        m.translation = was + off
+        _put(hub, m)
+    context.view_layer.update()
+
+
 def update(context):
     """Every preview object put where it belongs now (the slots and hubs may have moved, the springs changed, the
     doors opened): cheap, no importing."""
     s = context.scene.sigma
+    lift_hubs(context)
+    kits = set(gamedata.part_ids().get("suspension", []))
+    for o in objects():   # a lift kit shown on its slot by an earlier version: its mesh isn't drawn in game
+        if o.get(TAG) == "part" and o.parent is None and o.get("sigma_donor") in kits:
+            for x in reversed([o] + list(o.children_recursive)):
+                bpy.data.objects.remove(x)
     objs = objects()
     if not objs:
         return
     context.view_layer.update()
     src = script.read_script(s) or ""
     from . import tuning
+    if s.kind == 'CAR' and not tuning.current(context):
+        tuning.load(context, src)   # mass and springs as the script has them (the Tuning box may never have been opened)
     pose = s.preview_suspension
     drop = {} if not s.preview_wheels else tuning.rest_drop(context, src) if pose == 'REST' else \
         tuning.travel(context, src) if pose == 'DOWN' else {}   # bottomed out: at the hub itself
@@ -320,19 +393,15 @@ def update(context):
         tag, slot = o.get(TAG), bpy.data.objects.get(o.get(SLOT, ""))
         if tag == "part" and slot is not None:   # fitted to the slot, as the game fits it (turned with it, open)
             loc, rot, _ = slot.matrix_world.decompose()
-            o.matrix_world = Matrix.LocRotScale(loc, rot, o.matrix_world.to_scale())
+            _put(o, Matrix.LocRotScale(loc, rot, o.matrix_world.to_scale()))
         elif tag == "wheel" and slot is not None:
             # as the game builds it (parts.wheel): the wheel at the hub marker's place only, turned as the car is (the
             # marker's own rotation isn't used), its rim turned by rim_rotation; the spring along the car's up
             w, rot = rims.get(slot.name, (None, None))
             car = s.root.matrix_world.to_quaternion() if s.root is not None else Quaternion()
-            out = 0.0
-            if s.preview_lifted and tuning.lift_slot(src) and s.root is not None:   # a lift kit moves the wheels out
-                x = (s.root.matrix_world.inverted() @ slot.matrix_world.translation).x
-                out = s.tuning.lift_widen * (1 if x >= 0 else -1)
-            centre = slot.matrix_world.translation + car @ Vector((out, 0, -drop.get(w, 0.0)))
+            centre = slot.matrix_world.translation + car @ Vector((0, 0, -drop.get(w, 0.0)))   # (the hub moved out, lifted)
             r = car @ (unity_euler(rot) if rot else Quaternion())
-            o.matrix_world = Matrix.LocRotScale(centre, r, Vector((1, 1, 1)))
+            _put(o, Matrix.LocRotScale(centre, r, Vector((1, 1, 1))))
             low = min((o.matrix_world @ Vector(c)).z for c in o.bound_box)
             ground = low if ground is None else min(ground, low)
     for o in objs:
@@ -341,10 +410,10 @@ def update(context):
             box = kit.body_box(s)
             if ground is not None and box is not None:
                 c = (box[0] + box[1]) / 2
-                o.matrix_world = Matrix.Translation((c.x, c.y, ground))
-            o.hide_viewport = ground is None
-    s.preview_ground = ground if ground is not None else 0.0
-    s.preview_has_ground = ground is not None
+                _put(o, Matrix.Translation((c.x, c.y, ground)))
+            _set(o, "hide_viewport", ground is None)
+    _set(s, "preview_ground", ground if ground is not None else 0.0)
+    _set(s, "preview_has_ground", ground is not None)
 
 
 # ---- doors, hoods and lids opened as the game opens them: the game's DoorOpen FSM turns the part's slot (its parent)
@@ -515,31 +584,40 @@ def _hidden_layer(context, show):
 
 
 def unlift(context):
-    """Shown lifted no more: every object back as it was (before export)."""
+    """Before export: the hubs back where they are without a kit (the game must get them there); the look stays as the
+    switch has it (the export takes every object, shown or not)."""
     s = context.scene.sigma
-    was = s.preview_lifted
-    s["preview_lifted"] = False
-    for o in bpy.data.objects:
-        if SHOWN in o:
-            _set_shown(o, None)
-    if was:
-        _hidden_layer(context, False)
+    if s.preview_lifted:
+        s.preview_lifted = False   # the stock look, the hubs back
+    lift_hubs(context)
+
+
+def _show(o, show):
+    o.hide_viewport = False
+    if o.name in bpy.context.view_layer.objects:
+        o.hide_set(not show)
 
 
 def lifted(context):
-    """Show it lifted: the lifted meshes shown (wherever they are kept, however hidden), the stock ones hidden, the
-    game's lift kit on the slot, the preview's wheels where the lifted springs hold them; off, all as it was."""
+    """Show it lifted, a switch between the car's two looks, as the game has them: on, a lift kit fitted (the lifted
+    suspension shown, the stock hidden, the game's lift kit on the slot, the wheels where the lifted springs hold
+    them); off, none (the stock shown, the lifted hidden). To edit the lifted parts, switch it on."""
     s = context.scene.sigma
     up, down = lift_objects(context)
     for o in up:
-        _set_shown(o, True if s.preview_lifted else None)
+        _show(o, s.preview_lifted)
     for o in down:
-        _set_shown(o, False if s.preview_lifted else None)
-    for o in bpy.data.objects:   # shown before but no longer listed
-        if SHOWN in o and not s.preview_lifted:
-            _set_shown(o, None)
-    _hidden_layer(context, s.preview_lifted)
-    bpy.ops.sigma.preview_build('EXEC_DEFAULT')   # the lift kit on its slot (or off it again)
+        _show(o, not s.preview_lifted)
+    for o in bpy.data.objects:   # from an earlier way of showing it
+        if SHOWN in o:
+            del o[SHOWN]
+    _hidden_layer(context, True)
+    if s.preview_lifted and not s.preview_wheels:   # the ride height is the point: show the wheels
+        s["preview_wheels"] = True
+        build_soon()
+    else:
+        update(context)
+    lift_hubs(context)
 
 
 def ground_clearance(context):

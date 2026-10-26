@@ -61,8 +61,8 @@ parts.mount(g, "hinge_exhaust", "exhaust", { lookup = false })
 -- - wheel_hub.001 [marker]: Front right hub. The centre of the front right wheel, suspension all the way up
 -- - wheel_hub.002 [marker]: Rear left hub. The centre of the rear left wheel, suspension all the way up
 -- - wheel_hub.003 [marker]: Rear right hub. The centre of the rear right wheel, suspension all the way up
--- - suspension front? [mesh]: Front suspension. The stock front suspension's mesh, between the front wheels
--- - suspension rear? [mesh]: Rear suspension. The stock rear suspension's mesh, between the rear wheels
+-- - suspension front? [mesh]: Front suspension. The stock front suspension's mesh, between the front wheels: hidden while a lift kit is fitted
+-- - suspension rear? [mesh]: Rear suspension. The stock rear suspension's mesh, between the rear wheels: hidden while a lift kit is fitted
 -- - drive shaft? [mesh]: Drive shaft. Its mesh, from the gearbox to the driven axle
 -- - hinge_suspension? [spot]: Lift kit slot. Where a lift kit clips in: under the car, between the axles. With one fitted, the wheels sit higher on longer, softer springs and further out, as the game's cars do
 -- - suspension_lifted? [hidden]: Lifted suspension. The suspension as it looks with a lift kit fitted; hidden until one is
@@ -74,7 +74,7 @@ parts.wheel(g, "Wheel FL", { at = "wheel_hub" })
 parts.wheel(g, "Wheel FR", { at = "wheel_hub.001", rim_rotation = { 0, 180, 0 } })
 parts.wheel(g, "Wheel RL", { at = "wheel_hub.002" })
 parts.wheel(g, "Wheel RR", { at = "wheel_hub.003", rim_rotation = { 0, 180, 0 } })
-parts.lift_kit(g, { slot = "hinge_suspension", box = { 0.64, 0.2, 0.19 },
+parts.lift_kit(g, { slot = "hinge_suspension", box = { 0.64, 0.2, 0.19 }, stock = { "suspension front", "suspension rear" },
   lifted = { "suspension_lifted", "suspension rear lifted", "spring", "suspension_front_lifted", "undershield" } })
 
 -- ## Fuel tank [required]

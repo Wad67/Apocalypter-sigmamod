@@ -119,6 +119,12 @@ namespace SigmaMod
                                 ["springMaxLength"] = wc.spring.maxLength, ["springMaxForce"] = wc.spring.maxForce
                             };
                             break;
+                        case NWH.Common.CoM.VariableCenterOfMass com:   // the car's own point and inertia (vanilla cars all set them)
+                            var cm = new Dictionary<string, object> { ["dimensions"] = V(com.dimensions) };   // no nulls: Blender can't keep one
+                            if (!com.useDefaultCenterOfMass) cm["point"] = V(com.centerOfMass);
+                            if (!com.useDefaultInertia) cm["inertia"] = V(com.inertiaTensor);
+                            ex["center_of_mass"] = cm;
+                            break;
                         case ES3Prefab p: ex["es3prefab"] = p.prefabId.ToString(); break;
                     }
                 }

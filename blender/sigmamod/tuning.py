@@ -29,7 +29,7 @@ DRIVES = [
     ('script', "As the script has it", "The script names an axle by number: left as it is"),
 ]
 # what each group of settings is in the script; a group is written once the artist changes any of it
-GROUPS = ("mass", "drive", "steer", "brakes", "gears", "diff", "centre", "front", "rear", "lift")
+GROUPS = ("mass", "com", "drive", "steer", "brakes", "gears", "diff", "centre", "front", "rear", "lift")
 VC = {"steer": "steering.maximumSteerAngle", "brakes": "brakes.maxTorque", "gears": "powertrain.transmission.gears"}
 DIFF = {"diff": "DifferentialType", "diff_stiffness": "stiffness", "bias": "biasAB", "slip_torque": "slipTorque",
         "power_ramp": "powerRamp", "coast_ramp": "coastRamp"}
@@ -37,10 +37,20 @@ DIFF = {"diff": "DifferentialType", "diff_stiffness": "stiffness", "bias": "bias
 NWH = {"steer": 25.0, "brakes": 7000.0, "diff": "Open", "diff_stiffness": 0.5, "bias": 0.5, "slip_torque": 400.0,
        "power_ramp": 1.0, "coast_ramp": 0.5, "centre": "Open", "centre_bias": 0.5}
 NUM = r"-?\d+(?:\.\d+)?"
+# where the vanilla cars' centres of mass are (their VariableCenterOfMass, read from the game's assets): from the
+# height of their wheel centres, and the share of the weight on the front axle that puts there
+VANILLA_HEIGHT = (-0.18, 0.13)   # m (most 0.05 to 0.15 below)
+VANILLA_FRONT = (0.45, 0.67)
+COM_NAME = "center_of_mass"
+
+
+_loading = []   # set while load() fills the values in: they're the script's, not the artist's changes
 
 
 def _touch(group):
     def update(self, context):
+        if _loading:
+            return
         t = context.scene.sigma.tuning
         got = set(filter(None, t.touched.split(",")))
         if group not in got:
@@ -123,6 +133,11 @@ class SigmaTuning(bpy.types.PropertyGroup):
     lift_damper: bpy.props.FloatProperty(name="Lifted damping", min=0, max=100000, step=10000, precision=0, update=_touch("lift"),
                                          description="With a lift kit fitted: the shock absorbers (the game's: halved, "
                                                      "3000 to 1500: it floats over rough ground)")
+    com: bpy.props.PointerProperty(type=bpy.types.Object, name="Centre of mass", update=_touch("com"),
+                                   poll=lambda self, o: o.type == 'EMPTY',
+                                   description="An empty at the point the car balances on. The game holds the car's "
+                                               "centre of mass there, as every vanilla car has its own. Empty: Unity "
+                                               "puts it in the middle of the colliders")
     lift_widen: bpy.props.FloatProperty(name="Wheels out by", unit='LENGTH', min=0, max=1, precision=3, update=_touch("lift"),
                                         description="With a lift kit fitted: how far each wheel moves outward (a wider "
                                                     "track, steadier when tall; the game's: 0.22 m)")
@@ -197,7 +212,7 @@ def axles(context, src):
 
 
 # the lines the add-on writes in the block: anything else (a line of the artist's, a template) ends it
-OWN = re.compile(r'(-- (?!#)|g\.Rigidbody\b|g\.drive\b|g\.VehicleController\b|local tune = |tune\[|for _, wheel in |  |end$|local lift = |if lift then )')
+OWN = re.compile(r'(-- (?!#)|g\.Rigidbody\b|g\.center_of_mass\b|g\.dimensions\b|g\.drive\b|g\.VehicleController\b|local tune = |tune\[|for _, wheel in |  |end$|local lift = |if lift then )')
 
 
 def span(lines):
@@ -258,6 +273,11 @@ def read(src):
             if mm:
                 out["mass"] = float(mm.group(1))
                 in_block |= {"mass"} if mine else set()
+        for pat in (r'\bcenter_of_mass\s*=\s*"((?:[^"\\]|\\.)*)"', r'g\.center_of_mass\s*=\s*"((?:[^"\\]|\\.)*)"'):
+            mm = re.search(pat, body if pat.startswith(r"\bcenter") else text)
+            if mm:
+                out["com"] = mm.group(1)
+                in_block |= {"com"} if mine else set()
         for pat in (r'\bdrive\s*=\s*(?:"(\w+)"|(\d+))\s*[,}\n]', r'g\.drive\s*=\s*(?:"(\w+)"|(\d+))'):
             mm = re.search(pat, (body or text) if pat.startswith(r"\bdrive") else text)
             if mm:
@@ -315,6 +335,12 @@ def block(context, src, groups):
     lines = []
     if "mass" in groups:
         lines += ["g.Rigidbody = g.Rigidbody or {}", f"g.Rigidbody.mass = {_f(t.mass)}   -- kg"]
+    if "com" in groups and t.com is not None:
+        size = body_size(context)
+        lines.append(f"g.center_of_mass = {script._q(t.com.name)}   -- the point the car balances on: that empty")
+        if size:
+            lines.append("g.dimensions = { " + ", ".join(_f(round(x, 3)) for x in size) + " }   -- m: width, height, "
+                         "length (the body's), for the inertia")
     if "drive" in groups:
         lines.append(f'g.drive = "{t.drive}"')
     vc = []
@@ -431,13 +457,22 @@ def load(context, src=None, force=False):
     """The values into the scene from the script (once per script: another asset, or another id, reads again)."""
     s = context.scene.sigma
     t = s.tuning
-    if current(context) and not force:
+    if (current(context) and not force) or _loading:
         return
+    _loading.append(True)
+    try:
+        _load(context, s, t, src)
+    finally:
+        _loading.clear()
+
+
+def _load(context, s, t, src):
     src = src if src is not None else (script.read_script(s) or "")
     v, _ = read(src)
     lua, _ = sigmasrc.kit_files()
     sigma = open(lua, encoding="utf-8").read() if lua else ""
     t.mass = v["mass"]
+    t.com = bpy.data.objects.get(v.get("com", "")) if v.get("com") else None
     d = str(v["drive"])
     t.drive_script = d if d.isdigit() else ""
     t.drive = 'script' if d.isdigit() else (d if d in {x[0] for x in DRIVES} else "rear")
@@ -478,7 +513,7 @@ def load(context, src=None, force=False):
 
 def rest_drop(context, src=None):
     """{wheel name: how far below its hub it sits with the car standing still}: the car's weight shared between the
-    axles by where its middle is (its body's), and between each axle's wheels evenly."""
+    axles by where its centre of mass is (else its body's middle), and between each axle's wheels evenly."""
     s = context.scene.sigma
     t = s.tuning
     src = src if src is not None else (script.read_script(s) or "")
@@ -488,7 +523,7 @@ def rest_drop(context, src=None):
     box = kit.body_box(s)
     if not front or box is None:
         return {}
-    yc = (box[0].y + box[1].y) / 2
+    yc = t.com.matrix_world.translation.y if t.com is not None else (box[0].y + box[1].y) / 2
     yf = sum(hubs[w].matrix_world.translation.y for w in front) / len(front)
     yr = sum(hubs[w].matrix_world.translation.y for w in rear) / len(rear) if rear else yf
     share_f = 1.0 if not rear or abs(yr - yf) < 1e-6 else min(1.0, max(0.0, (yr - yc) / (yr - yf)))
@@ -516,6 +551,110 @@ def travel(context, src=None):
         for w in names:
             out[w] = t.lift_spring if lifted else a.spring
     return out
+
+
+# ---- the centre of mass
+
+def body_size(context):
+    """(width, height, length) of the body in metres, in the car's own frame (what the game's inertia is worked out
+    from, as the vanilla cars' are), or None."""
+    from . import kit
+    box = kit.body_box(context.scene.sigma, local=True)
+    if box is None:
+        return None
+    d = box[1] - box[0]
+    return d.x, d.z, d.y
+
+
+def com_facts(context, src=None):
+    """What the centre of mass does, for the panel: {"height": m above the wheel centres, "front": share of the
+    weight on the front axle, "side": m off the middle (+ right)}, the keys it can work out."""
+    s = context.scene.sigma
+    t = s.tuning
+    if t.com is None:
+        return {}
+    src = src if src is not None else (script.read_script(s) or "")
+    to = s.root.matrix_world.inverted() if s.root is not None else None
+    loc = lambda o: (to @ o.matrix_world.translation) if to is not None else o.matrix_world.translation
+    c = loc(t.com)
+    front, rear = axles(context, src)
+    hubs = {w: hub_of(w, at) for w, at, _, _ in wheels_in(src)}
+    out = {}
+    hs = [loc(o) for o in hubs.values() if o is not None]
+    if hs:
+        out["height"] = c.z - sum(h.z for h in hs) / len(hs)
+        out["side"] = c.x - sum(h.x for h in hs) / len(hs)
+    if front and rear:
+        yf = sum(loc(hubs[w]).y for w in front) / len(front)
+        yr = sum(loc(hubs[w]).y for w in rear) / len(rear)
+        if abs(yr - yf) > 1e-6:
+            out["front"] = (yr - c.y) / (yr - yf)
+    return out
+
+
+def game_com(s):
+    """A game car's own centre of mass (its export's, in the root's extras), in Blender's axes from the root, or None:
+    a changed game car keeps it unless you place your own."""
+    from mathutils import Vector
+    cm = s.root.get("center_of_mass") if s.root is not None else None
+    p = cm.get("point") if hasattr(cm, "get") else None
+    if p is None or len(p) != 3:
+        return None
+    return Vector((-p[0], -p[2], p[1]))   # Unity (x, y, z) -> Blender (-x, -z, y)
+
+
+def com_default(context, src=None):
+    """Where a new centre of mass goes, in the car's own frame: as the vanilla cars have theirs, a little below the
+    wheel centres (0.1 m) and 55 % of the way from the rear axle to the front one; without wheels, the body's
+    middle, a third of the way up. A changed game car: where that car has its own."""
+    from mathutils import Vector
+    from . import kit
+    s = context.scene.sigma
+    if game_com(s) is not None:
+        return game_com(s)
+    src = src if src is not None else (script.read_script(s) or "")
+    to = s.root.matrix_world.inverted() if s.root is not None else None
+    loc = lambda o: (to @ o.matrix_world.translation) if to is not None else o.matrix_world.translation
+    front, rear = axles(context, src)
+    hubs = {w: hub_of(w, at) for w, at, _, _ in wheels_in(src)}
+    if front and rear:
+        f = [loc(hubs[w]) for w in front]
+        r = [loc(hubs[w]) for w in rear]
+        pf, pr = sum(f, Vector()) / len(f), sum(r, Vector()) / len(r)
+        p = pr + (pf - pr) * 0.55
+        p.x = sum(h.x for h in f + r) / len(f + r)
+        p.z = sum(h.z for h in f + r) / len(f + r) - 0.1
+        return p
+    box = kit.body_box(s, local=True)
+    if box is None:
+        return Vector()
+    lo, hi = box
+    return Vector(((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, lo.z + (hi.z - lo.z) / 3))
+
+
+class SIGMA_OT_place_com(bpy.types.Operator):
+    """Put an empty where the car balances: a little below the wheel centres and a bit ahead of the middle of the
+    wheelbase, as the vanilla cars have theirs. Move it to suit your car (lower: steadier; forward: more weight on
+    the front wheels)"""
+    bl_idname = "sigma.place_com"
+    bl_label = "Place the centre of mass"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        s = context.scene.sigma
+        if s.root is None:
+            self.report({'ERROR'}, "No car yet (step 1 picks its top object)")
+            return {'CANCELLED'}
+        o = bpy.data.objects.get(COM_NAME)
+        if o is None or o.type != 'EMPTY':
+            o = bpy.data.objects.new(COM_NAME, None)
+            (s.root.users_collection[0] if s.root.users_collection else context.scene.collection).objects.link(o)
+        o.empty_display_type, o.empty_display_size, o.show_in_front, o.show_name = 'SPHERE', 0.12, True, True
+        o.parent = s.root
+        o.matrix_parent_inverse.identity()
+        o.location = com_default(context)
+        s.tuning.com = o
+        return {'FINISHED'}
 
 
 # ---- the panel
@@ -579,6 +718,46 @@ def opened(self, context):
         load(context)
 
 
+def _draw_com(l, c, wrap):
+    t = c.scene.sigma.tuning
+    b = l.box().column(align=True)
+    b.label(text="Centre of mass", icon='PIVOT_MEDIAN')
+    row = b.row(align=True)
+    row.prop(t, "com", text="")
+    row.operator("sigma.place_com", text="" if t.com else "Place it", icon='EMPTY_AXIS')
+    if t.com is None and game_com(c.scene.sigma) is not None:
+        p = game_com(c.scene.sigma)
+        wrap(b, c, f"The game car's own: {abs(p.z):.2f} m {'below' if p.z < 0 else 'above'} and {abs(p.y):.2f} m "
+                   f"{'ahead of' if p.y < 0 else 'behind'} its top object. Kept unless you place one (Place it starts "
+                   "from there).", icon='INFO', boxes=4)
+        return
+    if t.com is None:
+        wrap(b, c, "None: Unity puts it in the middle of your colliders (usually high on a car: it rolls easily) and "
+                   "works out the inertia from their shapes. Every vanilla car sets its own: place one.",
+             icon='ERROR', boxes=4)
+        return
+    f = com_facts(c)
+    if "height" in f:
+        h = f["height"]
+        lo, hi = VANILLA_HEIGHT
+        b.label(text=f"{abs(h) * 100:.0f} cm {'below' if h < 0 else 'above'} the wheel centres "
+                     f"(vanilla: {-lo * 100:.0f} below to {hi * 100:.0f} above)",
+                icon='CHECKMARK' if lo - 0.05 <= h <= hi + 0.05 else 'ERROR')
+    if "front" in f:
+        fr = f["front"]
+        lo, hi = VANILLA_FRONT
+        b.label(text=f"Front {fr * 100:.0f} % / rear {(1 - fr) * 100:.0f} % of the weight "
+                     f"(vanilla: {lo * 100:.0f} to {hi * 100:.0f} % front)",
+                icon='CHECKMARK' if lo - 0.05 <= fr <= hi + 0.05 else 'ERROR')
+    if abs(f.get("side", 0)) > 0.02:
+        b.label(text=f"{abs(f['side']) * 100:.0f} cm to the {'right' if f['side'] > 0 else 'left'} of the middle: it "
+                     "leans that way", icon='ERROR')
+    size = body_size(c)
+    if size:
+        wrap(b, c, f"Inertia: a solid box of {t.mass:.0f} kg, {size[0]:.2f} x {size[1]:.2f} x {size[2]:.2f} m (the "
+                   "body), as the vanilla cars have it.", icon='INFO', boxes=4)
+
+
 def draw(l, c, wrap):
     s = c.scene.sigma
     t = s.tuning
@@ -588,6 +767,8 @@ def draw(l, c, wrap):
         return
     col = l.column(align=True)
     col.prop(t, "mass")
+    _draw_com(l, c, wrap)
+    col = l.column(align=True)
     col.prop(t, "drive")
     if t.drive == 'script':
         col.label(text=f"The script drives axle {t.drive_script}: pick one above to change it", icon='INFO')
@@ -649,5 +830,5 @@ def draw(l, c, wrap):
     row.operator("sigma.reset_tuning", text="", icon='LOOP_BACK')
 
 
-classes = (SIGMA_OT_gear, SIGMA_OT_write_tuning, SIGMA_OT_reset_tuning)
+classes = (SIGMA_OT_gear, SIGMA_OT_write_tuning, SIGMA_OT_reset_tuning, SIGMA_OT_place_com)
 props = (SigmaGear, SigmaAxle, SigmaTuning)

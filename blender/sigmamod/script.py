@@ -230,7 +230,7 @@ def part_items(self, context):
     from . import sigmasrc
     cat = [p for p in sigmasrc.parts_catalog() if p.name not in SKIP]
     part_items.cache = [(p.name, f"{p.name}: {p.summary}", p.doc[:400]) for p in cat] or [("", "(SigmaMod's parts.lua not found)", "")]
-    return part_items.cache
+    return paths.stable("parts", part_items.cache)
 
 
 def part_code(name, sel, act):

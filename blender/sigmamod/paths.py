@@ -211,3 +211,20 @@ def user_dir():
         d = os.path.join(bpy.utils.user_resource('DATAFILES'), "sigmamod")
         os.makedirs(d, exist_ok=True)
         return d
+
+
+# ---- lists Blender shows from a function (an enum's items)
+
+_kept = {}
+
+
+def stable(key, items):
+    """items as Blender must get them from an enum's items function: the same list (and strings) for as long as they
+    don't change. Blender keeps pointers into what the function returned and reads them while a list is open; a list
+    made anew on every call frees the strings it still shows (a blank list)."""
+    items = [tuple(i) for i in items]
+    old = _kept.get(key)
+    if old is not None and old[-1] == items:
+        return old[-1]
+    _kept.setdefault(key, []).append(items)   # every list ever shown stays alive: it's a few strings
+    return items

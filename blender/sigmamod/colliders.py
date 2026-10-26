@@ -47,7 +47,7 @@ def holder_items(self, context):
     if o:
         items += [("OBJ:" + c.name, c.name, "An empty under the object") for c in o.children_recursive if c.type == 'EMPTY']
     holder_items.cache = items
-    return items
+    return paths.stable("holders", items)
 
 
 class SIGMA_OT_make_colliders(jobs.JobMixin, bpy.types.Operator):

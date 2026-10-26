@@ -94,6 +94,13 @@ walks through making an asset, one step at a time, each ticked off when it's don
    gears and the differential (open, locked or limited slip; a centre one for all-wheel drive), written into the
    script as a `-- ## Tuning` block before the car's template line. The preview's wheels move as the springs would.
    The final drive belongs to the engine fitted (each of the game's engines sets its own).
+   **Centre of mass** (in Tuning): an empty at the point the car balances on. Every vanilla car fixes its own with
+   NWH's `VariableCenterOfMass`: 0.18 m below to 0.13 m above its wheel centres, 45 to 67 % of the weight on the front
+   axle, and an inertia worked out as a solid box of its mass and size. A chassis with an empty gets the same: the
+   point held there, the inertia from its mass and its body's size. Without one, Unity puts the centre of mass in the
+   middle of the colliders (high, on a car) and takes the inertia from their shapes. Place it starts a little below
+   the wheel centres and 55 % of the way from the rear axle to the front; the box shows the height and the front /
+   rear split against the vanilla cars'. A changed game car keeps that car's own point until you place one.
 5. **Colliders.** `colliders.py`'s convex pieces from the selected mesh, made as Blender objects, so they are kept in
    the `.blend` and exported with everything else. Made again, they replace the old ones.
 6. **Script.** A starting script for the kind of asset, opened in Blender's text editor; *Add a part* writes
@@ -246,7 +253,7 @@ The options are in the library's own comments (`SigmaMod/lua/sigma/parts.lua`); 
 
 | Part | What it makes | Options |
 |---|---|---|
-| `chassis(o)` | The root: a vehicle the game knows, with the lookups parts use. Returns `g`. | `mass`, `static`, `drive` (`"front"`, `"rear"`, `"all"`, `"none"`, axle number), `controller` (NWH values), `add`, `speed`, `flip_over`, `dashboard`, `parked_brakes` (false: wheels not clamped while nobody drives it) |
+| `chassis(o)` | The root: a vehicle the game knows, with the lookups parts use. Returns `g`. | `mass`, `static`, `drive` (`"front"`, `"rear"`, `"all"`, `"none"`, axle number), `controller` (NWH values), `add`, `speed`, `flip_over`, `dashboard`, `parked_brakes` (false: wheels not clamped while nobody drives it), `center_of_mass` (an object's name, or `{ x, y, z }` from the root in Unity's axes), `dimensions` (`{ width, height, length }` m for the inertia; default the body's size) |
 | `colliders(g, ...)` | Solid colliders from the objects' meshes. | |
 | `numbered(base, n)` | `"Body"`, `"Body.001"` ... `"Body.00n"`, for `colliders`. | |
 | `lock_volumes(g, ...)` | Volumes that carry loose items with the vehicle. | |
